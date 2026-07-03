@@ -18,5 +18,19 @@ services:
     ports:
       - "6379:6379"
 
+
+  nginx:
+    image: nginx:latest
+    container_name: ticket_nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - postgres
+      - redis
+
 volumes:
   postgres_data:
