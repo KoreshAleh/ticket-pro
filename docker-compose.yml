@@ -1,0 +1,22 @@
+services:
+
+  postgres:
+    container_name: ticket_postgres
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: superpassword123
+      POSTGRES_DB: ticket_auth_db
+
+  redis:
+    container_name: ticket_redis
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:
