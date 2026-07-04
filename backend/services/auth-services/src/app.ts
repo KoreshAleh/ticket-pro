@@ -3,12 +3,16 @@ import pool from "./db"
 import bcrypt from 'bcrypt'
 import jwt from "jsonwebtoken"
 import dotenv from "dotenv"
+import '../src/config/passport'
+import passport from "passport"
 
 
 
 dotenv.config()
 
+
 const app = express()
+app.use(passport.initialize())
 
 app.use(express.json())
 
@@ -127,6 +131,28 @@ app.post('/login', async (req: Request<{}, {}, SignIn>, res: Response) => {
         return res.status(500).json({ success: false, message: "Server error" });
     }
 })
+
+app.get('/google', passport.authenticate('google', {scope: ['profile', 'email'], session: false} ))
+
+
+app.get('/google/callback', passport.authenticate('google', { failureRedirect: '/login', session: false}), (req: Request, res: Response) => {
+    const user = req.user as any
+
+    const token = jwt.sign(
+        {
+            id: user.id,
+            email: user.email,
+            username: user.username
+        }, 
+        JWT_SECRET,
+        {expiresIn: '24h'}
+    )
+
+    res.redirect(`http://localhost:5173/login?token=${token}&role=${user.role}`)
+})
+
+
+
 
 
 
