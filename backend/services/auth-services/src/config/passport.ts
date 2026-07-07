@@ -15,6 +15,7 @@ passport.use(new GoogleStrategy({
         try{
            const userEmail =  profile.emails?.[0]?.value
             const userName = profile.displayName
+            const userAvatar = profile.photos?.[0]?.value;
 
             if(!userEmail){
                 return done(new Error("Email not found in Google profile"), undefined);
@@ -29,9 +30,9 @@ passport.use(new GoogleStrategy({
 
                 const userData = createUSer.rows[0]
 
-                user = { id: userData.id, email: userData.email, username: userData.username, role: userData.role}
+                user = { id: userData.id, email: userData.email, username: userData.username, role: userData.role, avatar: userAvatar }
             }else{
-                user = { id: userDataExist.id,  email: userDataExist.email, username: userDataExist.username, role: userDataExist.role}
+                user = { id: userDataExist.id,  email: userDataExist.email, username: userDataExist.username, role: userDataExist.role,  avatar: userAvatar}
             }
 
             

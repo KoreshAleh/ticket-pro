@@ -1,40 +1,44 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom'
-import Login from './page/Auth/Login'
-import Register from './page/Auth/Register'
-import PageForUser from './page/dashboard/PageForUser'
+import { LoginModal } from './page/Auth/Login'
+import { RegisterModal } from './page/Auth/Register'
 import PageForAdmin from './page/dashboard/PageForAdmin'
-// import ProtectedRoute from './page/protectedPage/ProtectedRoute'
-// import RootRedirect from './page/rootRedirect/RootRedirect'
-import { useState } from 'react'
-import { useEffect } from 'react'
+import RootRedirect from './page/rootRedirect/RootRedirect'
+// import { useState } from 'react'
+// import { useEffect } from 'react'
+import { TicketsPage } from './page/dashboard/TicketPage'
+import './index.css'
+import { HomePage } from './page/dashboard/MainPage'
+import { UserPage } from './page/dashboard/PageForUser'
+import ProtectedRoute from './page/protectedPage/ProtectedRoute'
+
 
 
 const router = createBrowserRouter([
   {
+    path: '/mainpage',
+    element: <HomePage  />
+  },
+  {
+    path: '/ticketpage',
+    element: <ProtectedRoute element={<TicketsPage />} allowedRoles={['admin', 'user']} />,
+  },
+  {
     path: '/userpage',
-    // element: <ProtectedRoute element={<PageForUser />} allowedRoles={['admin', 'user']} />,
-    element: <PageForUser />
+    element: <ProtectedRoute element={<UserPage />} allowedRoles={['admin', 'user']} />,
+    // element: <UserPage />
   },
   {
     path: '/adminpage',
-    // element: <ProtectedRoute element={<PageForAdmin />} allowedRoles={['admin']} />,
-    element: <PageForAdmin />
-  },
-  {
-    path: '/login',
-    element: <Login />,
-  },
-  {
-    path: '/register',
-    element: <Register />,
+    element: <ProtectedRoute element={<PageForAdmin />} allowedRoles={['admin']} />,
+    // element: <PageForAdmin />
   },
   {
     // Если пользователь зашел просто на сайт ( / ), автоматически редиректим его на логин
     path: '/',
     // element: <RootRedirect />,
-    element:  <Login />,
+    element:  <RootRedirect />,
   },
   {
     // Обработка несуществующих страниц (404 Not Found)

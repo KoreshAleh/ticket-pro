@@ -59,6 +59,7 @@ app.post('/register', async (req: Request<{}, {}, SignUp>, res: Response) => {
         const token = jwt.sign(
             {
                 id: userData.id,
+                username: userData.username,
                 email: userData.email,
                 role: userData.role
             },
@@ -105,6 +106,7 @@ app.post('/login', async (req: Request<{}, {}, SignIn>, res: Response) => {
         const token = jwt.sign(
             {
                 id: userData.id,
+                username: userData.username,
                 email: userData.email,
                 role: userData.role
             },
@@ -141,14 +143,17 @@ app.get('/google/callback', passport.authenticate('google', { failureRedirect: '
     const token = jwt.sign(
         {
             id: user.id,
+            username: user.username,
             email: user.email,
-            username: user.username
+            role: user.role,
+             avatar: user.avatar
+            
         }, 
         JWT_SECRET,
         {expiresIn: '24h'}
     )
 
-    res.redirect(`http://localhost:5173/login?token=${token}&role=${user.role}`)
+    res.redirect(`http://localhost:5173/mainpage?token=${token}&role=${user.role}`)
 })
 
 
