@@ -43,12 +43,8 @@ export const HomePage: React.FC = () => {
                 throw new Error();
             }
         } catch (error) {
-            setFeaturedEvents([
-                { id: 1, title: 'Max Korzh — Live Concert', description: 'Stadium show', price: 3500, event_date: '2026-08-15' },
-                { id: 2, title: 'Stand-Up Show — Top Comedians', description: 'Best jokes', price: 2000, event_date: '2026-07-25' },
-                { id: 3, title: 'Tech Conf 2026 — NextGen Dev', description: 'Microservices & Highload', price: 5000, event_date: '2026-09-10' },
-                { id: 4, title: 'CyberSport Finals — Counter-Strike', description: 'Grand Final', price: 1500, event_date: '2026-10-05' }
-            ]);
+
+
         } finally {
             setLoading(false);
         }
@@ -58,24 +54,24 @@ export const HomePage: React.FC = () => {
         fetchFeaturedEvents();
     }, []);
 
-const prevSlide = () => {
-    setCurrentIndex((prev) => {
-        if (featuredEvents.length <= 3) return 0;
-        
-        // Если мы в самом начале, перепрыгиваем на последнюю возможную позицию
-        return prev === 0 ? featuredEvents.length - 3 : prev - 1;
-    });
-};
+    const prevSlide = () => {
+        setCurrentIndex((prev) => {
+            if (featuredEvents.length <= 3) return 0;
 
-const nextSlide = () => {
-    setCurrentIndex((prev) => {
-        if (featuredEvents.length <= 3) return 0;
-        
-        // Если дошли до конца (показана последняя тройка карточек),
-        // сбрасываем индекс в 0, чтобы слайдер вернулся в начало
-        return prev >= featuredEvents.length - 3 ? 0 : prev + 1;
-    });
-};
+            // Если мы в самом начале, перепрыгиваем на последнюю возможную позицию
+            return prev === 0 ? featuredEvents.length - 3 : prev - 1;
+        });
+    };
+
+    const nextSlide = () => {
+        setCurrentIndex((prev) => {
+            if (featuredEvents.length <= 3) return 0;
+
+            // Если дошли до конца (показана последняя тройка карточек),
+            // сбрасываем индекс в 0, чтобы слайдер вернулся в начало
+            return prev >= featuredEvents.length - 3 ? 0 : prev + 1;
+        });
+    };
 
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search);
@@ -133,7 +129,7 @@ const nextSlide = () => {
             </header>
 
             {/* Main Container */}
-            <main className="flex-grow flex flex-col items-center justify-center max-w-7xl w-full mx-auto px-4 pt-2 pb-8 space-y-23">
+            <main className="flex-grow flex flex-col items-center justify-center max-w-7xl w-full mx-auto px-4 pt-2 pb-8 space-y-24">
                 <h1 className="text-4xl sm:text-6xl font-extrabold text-white leading-tight min-h-[100px] sm:min-h-[140px] flex items-center justify-center">
                     <span className="bg-gradient-to-r from-purple-400 via-pink-500 to-red-400 bg-clip-text text-transparent">
                         <Typewriter
@@ -153,15 +149,13 @@ const nextSlide = () => {
                 </div>
 
                 {/* --- СЛАЙДЕР СВЕРХУ --- */}
-                {!loading && featuredEvents.length > 0 && (
+                {!loading && featuredEvents.length > 0 ? (
                     <div className="w-full max-w-5xl mx-auto space-y-3 relative px-12">
-
                         <div className="relative">
                             {/* Левая кнопка */}
                             <button
                                 onClick={prevSlide}
-                                // disabled={currentIndex === 0}
-                                className="absolute -left-12 top-1/2 -translate-y-1/2 w-9 h-9 rounded-xl bg-gray-950 border border-gray-800 flex items-center justify-center text-gray-400 hover:text-white hover:border-gray-700 hover:bg-gray-900 disabled:opacity-30 disabled:pointer-events-none transition z-20 shadow-xl"
+                                className="absolute -left-12 top-1/2 -translate-y-1/2 w-9 h-9 rounded-xl bg-gray-950 border border-gray-800 flex items-center justify-center text-gray-400 hover:text-white hover:border-gray-700 hover:bg-gray-900 transition z-20 shadow-xl"
                             >
                                 ←
                             </button>
@@ -169,8 +163,7 @@ const nextSlide = () => {
                             {/* Правая кнопка */}
                             <button
                                 onClick={nextSlide}
-                                // disabled={currentIndex >= featuredEvents.length - 3}
-                                className="absolute -right-12 top-1/2 -translate-y-1/2 w-9 h-9 rounded-xl bg-gray-950 border border-gray-800 flex items-center justify-center text-gray-400 hover:text-white hover:border-gray-700 hover:bg-gray-900 disabled:opacity-30 disabled:pointer-events-none transition z-20 shadow-xl"
+                                className="absolute -right-12 top-1/2 -translate-y-1/2 w-9 h-9 rounded-xl bg-gray-950 border border-gray-800 flex items-center justify-center text-gray-400 hover:text-white hover:border-gray-700 hover:bg-gray-900 transition z-20 shadow-xl"
                             >
                                 →
                             </button>
@@ -179,13 +172,11 @@ const nextSlide = () => {
                             <div className="overflow-hidden w-full rounded-2xl">
                                 <div
                                     className="flex transition-transform duration-500 ease-in-out"
-                                    /* ИЗМЕНЕНО: Исправлен расчет смещения — теперь ровно на 1/3 часть за шаг с учетом gap (разница заложена в кастомный шаг) */
                                     style={{ transform: `translateX(-${currentIndex * 33.3333}%)` }}
                                 >
                                     {featuredEvents.map((event) => (
                                         <div
                                             key={event.id}
-                                            /* ИЗМЕНЕНО: Выделяем фиксированные 1/3 ширины экрана за вычетом паддингов */
                                             className="w-1/3 min-w-[33.3333%] px-2 shrink-0 transition"
                                         >
                                             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 flex flex-col justify-between h-44 relative overflow-hidden hover:border-gray-700 group w-full">
@@ -211,8 +202,20 @@ const nextSlide = () => {
                                     ))}
                                 </div>
                             </div>
-
                         </div>
+                    </div>
+                ) : !loading ? (
+                    /* ИЗМЕНЕНО: Красивый блок "Soon", если массив карточек пуст */
+                    <div className="w-full max-w-md mx-auto bg-gray-900/40 border border-dashed border-gray-800 rounded-2xl p-8 text-center text-gray-500">
+                        <span className="text-2xl block mb-2">⏳</span>
+                        <h3 className="text-sm font-semibold text-gray-400">New Events Coming Soon</h3>
+                        <p className="text-xs text-gray-600 mt-1">We are updating our schedule. Stay tuned!</p>
+                    </div>
+                ) : (
+                    /* В процессе загрузки (loading === true) показываем пустой элемент или спиннер */
+                    <div className="h-44 flex items-center justify-center text-gray-500 text-sm">
+                        <span className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mr-2"></span>
+                        Loading events...
                     </div>
                 )}
 

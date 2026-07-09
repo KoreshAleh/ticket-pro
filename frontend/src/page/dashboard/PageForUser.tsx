@@ -12,11 +12,17 @@ interface MyTicket {
   seat_number?: string;
 }
 
+interface ApiResponse {
+    success: boolean;
+    fromCache: boolean;
+    data: MyTicket[];
+}
+
 interface User {
   id: number,
-  username: string,
-  email: string,
-  role: string
+  username?: string,
+  email?: string,
+  role?: string
   balance?: string | number,
   avatar?: any
 }
@@ -28,10 +34,25 @@ export const UserPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [IMuser, setIMuser] = useState<User | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isUSer, setIsUser] = useState<User | null>(null)
+  const [errorUser, setErrorUser] = useState<boolean>(false)
 
 
   useEffect(() => {
-    const currentUser = getUserFromToken()
+    const currentUser = getUserFromToken();
+    const token = localStorage.getItem('token');
+
+    if (!token) {
+      setErrorUser(true);
+      setLoading(false);
+      return;
+    }
+
+    if (!currentUser || !currentUser.id) {
+      setErrorUser(true);
+      setLoading(false); 
+      return;
+    }
 
     const user = {
       id: currentUser.id,
@@ -42,9 +63,41 @@ export const UserPage: React.FC = () => {
       avatar: currentUser.avatar
     };
 
-    setIMuser(user)
+    setIMuser(user);
 
-  }, [])
+    const fetchUser = async () => {
+      try {
+        setLoading(true); 
+
+        const response = await fetch(`/api/ticket/my?id=${user.id}`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const data: ApiResponse = await response.json();
+
+        if (!response.ok) {
+          setErrorUser(true);
+          setError("Не удалось загрузить билеты"); 
+        } else {
+          setErrorUser(false);
+          setMyTickets(data.data); 
+        }
+      } catch (err) {
+        setErrorUser(true);
+        setError("Ошибка сети при загрузке билетов");
+      } finally {
+        setLoading(false); 
+      }
+    };
+
+    fetchUser();
+  }, []);
+
+
 
 
 
@@ -56,35 +109,7 @@ export const UserPage: React.FC = () => {
     navigate('/', { replace: true });
   };
 
-  useEffect(() => {
-    const fetchMyTickets = async () => {
-      try {
-        setLoading(true);
-        const token = localStorage.getItem('token');
 
-        const response = await fetch('/api/tickets/my', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (!response.ok) throw new Error('Не удалось загрузить ваши билеты');
-
-        const result = await response.json();
-        if (result.success) {
-          setMyTickets(result.data);
-
-        }
-      } catch (err: any) {
-        setError(err)
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchMyTickets();
-  }, []);
 
   return (
     <div className="bg-gray-950 text-gray-100 min-h-screen font-sans antialiased flex flex-col justify-between">
@@ -112,6 +137,14 @@ export const UserPage: React.FC = () => {
             >
               🚀 Афиша событий
             </button>
+            {IMuser?.role === 'admin' && (
+              <button
+                onClick={() => navigate('/adminpage')}
+                className="text-sm font-medium text-pink-400 hover:text-pink-300 bg-pink-950/30 hover:bg-pink-900/40 border border-pink-900/50 rounded-lg flex items-center gap-1.5 px-3 py-1.5 transition duration-200 hover:scale-105 active:scale-98"
+              >
+                ⚙️ Панель управления
+              </button>
+            )}
           </div>
 
           {/* Правая часть: Выход */}
@@ -214,16 +247,18 @@ export const UserPage: React.FC = () => {
       </footer>
 
 
-      <SettingsModal
+    {/* {IMuser && (
+  <SettingsModal
     isOpen={isSettingsOpen}
     onClose={() => setIsSettingsOpen(false)}
-    currentUser={IMuser} 
+    currentUser={IMuser} // Теперь TypeScript уверен, что здесь не null!
     onProfileUpdate={(updated) => {}}
   />
+)} */}
 
     </div>
   );
 
 
-  
+
 };

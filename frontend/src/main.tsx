@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom'
 import { LoginModal } from './page/Auth/Login'
 import { RegisterModal } from './page/Auth/Register'
-import PageForAdmin from './page/dashboard/PageForAdmin'
+import { PageForAdmin } from './page/dashboard/PageForAdmin'
 import RootRedirect from './page/rootRedirect/RootRedirect'
 // import { useState } from 'react'
 // import { useEffect } from 'react'
@@ -12,6 +12,7 @@ import './index.css'
 import { HomePage } from './page/dashboard/MainPage'
 import { UserPage } from './page/dashboard/PageForUser'
 import ProtectedRoute from './page/protectedPage/ProtectedRoute'
+import NotFound from './page/ErrorPage/NotFound'
 
 
 
@@ -43,7 +44,7 @@ const router = createBrowserRouter([
   {
     // Обработка несуществующих страниц (404 Not Found)
     path: '*',
-    element: <div style={{ padding: '20px', textAlign: 'center' }}><h2>404 - Страница не найдена</h2></div>,
+    element: <NotFound /> 
   },
 ])
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom'; // Импортируем хук навигации
+import { getUserFromToken } from '../../utils/auth';
 
 interface Ticket {
     id: number;
@@ -18,12 +19,20 @@ interface ApiResponse {
     data: Ticket[];
 }
 
+interface User {
+    id: number,
+
+}
+
+
 export const TicketsPage: React.FC = () => {
     const navigate = useNavigate(); // Инициализируем navigate
     const [tickets, setTickets] = useState<Ticket[]>([]);
     const [fromCache, setFromCache] = useState<boolean | null>(null);
     const [loading, setLoading] = useState<boolean>(true);
-    const [error, setError] = useState<string | null>(null);
+    const [error, setError] = useState<boolean>(false);
+    const [isUSer, setIsUser] = useState<User | null>(null)
+
 
     const fetchTickets = async () => {
         try {
@@ -58,6 +67,8 @@ export const TicketsPage: React.FC = () => {
     useEffect(() => {
         fetchTickets();
     }, []);
+
+    
 
     return (
         <div className="bg-gray-900 text-gray-100 min-h-screen font-sans antialiased flex flex-col">
