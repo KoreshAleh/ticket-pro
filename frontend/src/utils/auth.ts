@@ -14,7 +14,7 @@ export const getUserFromToken = () => {
         .join('')
     );
 
-    return JSON.parse(jsonPayload); // Возвращает готовый объект пользователя
+    return JSON.parse(jsonPayload);
   } catch (error) {
     console.error('Невалидный токен:', error);
     return null;

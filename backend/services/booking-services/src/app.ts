@@ -1,5 +1,6 @@
 import express from "express";
 import dotenv from "dotenv"
+import  BookingRouter from '../src/booking/booking.routes'
 
 
 
@@ -10,8 +11,11 @@ const PORT = process.env.PORT || 3003
 
 app.use(express.json())
 
-// app.use("/", TicketRoutes)
+app.use("/", BookingRouter)
+
+
+
 
 app.listen(PORT, () => {
-    console.log(`Auth service is working correctly on port ${PORT}!`);
+    console.log(`booking service is working correctly on port ${PORT}!`);
 });

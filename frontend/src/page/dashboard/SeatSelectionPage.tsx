@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { getUserFromToken } from '../../utils/auth';
 
 interface Seat {
     id: string;
@@ -16,8 +17,16 @@ interface Sector {
     availableSeats: number;
 }
 
+interface ModalState {
+    isOpen: boolean;
+    type: 'success' | 'error' | 'info';
+    title: string;
+    message: string;
+}
+
 export const SeatSelectionPage: React.FC = () => {
-    const { ticketId } = useParams<{ ticketId: string }>();
+    const { id } = useParams();
+    const ticketId = Number(id);
     const navigate = useNavigate();
 
     const [selectedSector, setSelectedSector] = useState<Sector | null>(null);
@@ -26,6 +35,14 @@ export const SeatSelectionPage: React.FC = () => {
     const [isReserved, setIsReserved] = useState<boolean>(false);
     const [timeLeft, setTimeLeft] = useState<number>(900);
     const [loading, setLoading] = useState<boolean>(true);
+    const [user, setUser] = useState<number | null>(null);
+
+    const [modal, setModal] = useState<ModalState>({
+        isOpen: false,
+        type: 'info',
+        title: '',
+        message: ''
+    });
 
     const sectors: Sector[] = [
         { id: 'sec-a', name: 'Sector A (West)', color: 'border-purple-500 hover:bg-purple-500/10', totalSeats: 160, availableSeats: 42 },
@@ -35,7 +52,12 @@ export const SeatSelectionPage: React.FC = () => {
         { id: 'vip-1', name: 'VIP Lounge Lounge 1', color: 'border-amber-500 hover:bg-amber-500/10 text-amber-400', totalSeats: 160, availableSeats: 15 },
     ];
 
-    // 1. Проверка localStorage при первой загрузке
+    useEffect(() => {
+        const currentUser = getUserFromToken();
+        setUser(currentUser.id);
+    }, []);
+
+    
     useEffect(() => {
         const savedLock = localStorage.getItem(`lock_ticket_${ticketId}`);
         if (savedLock) {
@@ -54,46 +76,49 @@ export const SeatSelectionPage: React.FC = () => {
         setLoading(false);
     }, [ticketId]);
 
-    // 2. Генерируем места при выборе сектора
+  
     useEffect(() => {
         if (!selectedSector) {
             setSeats([]);
             return;
         }
 
-        const totalRows = 10;
-        const colsPerRow = 16;
+        setLoading(true);
 
-        const stadiumSeats = Array.from({ length: totalRows * colsPerRow }, (_, index) => {
-            const row = Math.floor(index / colsPerRow) + 1;
-            const number = (index % colsPerRow) + 1;
-            const seed = (index + selectedSector.name.length) % 5;
-            const initialStatus: 'reserved' | 'available' = seed === 0 ? 'reserved' : 'available';
+        fetch(`/api/booking/seats/${ticketId}/${selectedSector.id}`)
+            .then(res => res.json())
+            .then(res => {
+                if (res.success && res.data) {
+                    let backendSeats = res.data;
 
-            return {
-                id: `${selectedSector.id}-${row}-${number}`,
-                row,
-                number,
-                status: initialStatus as 'available' | 'reserved' | 'selected'
-            };
-        });
+                    // Восстанавливаем локальный статус 'selected', если у юзера есть активная бронь
+                    const savedLock = localStorage.getItem(`lock_ticket_${ticketId}`);
+                    if (savedLock) {
+                        const { seat, expiresAt } = JSON.parse(savedLock);
+                        if (Math.floor((expiresAt - Date.now()) / 1000) > 0) {
+                            backendSeats = backendSeats.map((s: Seat) =>
+                                s.id === seat.id ? { ...s, status: 'selected' as const } : s
+                            );
+                        }
+                    }
 
-        const savedLock = localStorage.getItem(`lock_ticket_${ticketId}`);
-        if (savedLock) {
-            const { seat, expiresAt } = JSON.parse(savedLock);
-            if (Math.floor((expiresAt - Date.now()) / 1000) > 0) {
-                const updatedSeats = stadiumSeats.map((s): Seat => 
-                    s.id === seat.id ? { ...s, status: 'selected' as const } : s
-                );
-                setSeats(updatedSeats);
-                return;
-            }
-        }
+                    setSeats(backendSeats);
+                }
+            })
+            .catch(err => {
+                console.error("Error loading seats:", err);
+                setModal({
+                    isOpen: true,
+                    type: 'error',
+                    title: 'Fetch Error',
+                    message: 'Failed to load live stadium grid from the cluster.'
+                });
+            })
+            .finally(() => setLoading(false));
 
-        setSeats(stadiumSeats);
     }, [selectedSector, ticketId]);
 
-    // 3. Логика таймера
+    // 3. Логика таймера удержания
     useEffect(() => {
         if (!isReserved || timeLeft <= 0) return;
         const timer = setInterval(() => setTimeLeft((prev) => prev - 1), 1000);
@@ -103,8 +128,13 @@ export const SeatSelectionPage: React.FC = () => {
     // 4. Очистка при истечении таймера
     useEffect(() => {
         if (timeLeft === 0 && isReserved) {
-            handleCancelReservation(false); // Вызываем отмену без алерта подтверждения
-            alert("Reservation session expired! Your locked seat has been released.");
+            handleCancelReservation(false);
+            setModal({
+                isOpen: true,
+                type: 'error',
+                title: 'Hold Expired',
+                message: 'Your 15-minute reservation window has closed. The seat was released.'
+            });
         }
     }, [timeLeft, isReserved]);
 
@@ -114,39 +144,79 @@ export const SeatSelectionPage: React.FC = () => {
         return `${mins}:${String(secs).padStart(2, '0')}`;
     };
 
-    const handleSeatClick = (seatId: string) => {
+    const handleSeatClick = async (clickedSeat: Seat) => {
         if (isReserved) return;
+        if (clickedSeat.status === 'reserved') return;
 
-        setSeats(prev => prev.map(seat => {
-            if (seat.status === 'reserved') return seat;
-            if (seat.id === seatId) {
-                const isSelecting = seat.status === 'available';
-                setSelectedSeat(isSelecting ? seat : null);
-                return { ...seat, status: isSelecting ? 'selected' as const : 'available' as const };
+        if (clickedSeat.status === 'selected') {
+            setSelectedSeat(null);
+            setSeats(prev => prev.map(s => s.id === clickedSeat.id ? { ...s, status: 'available' } : s));
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/booking/checkSelected', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: user,
+                    ticketId: ticketId,
+                    sectorId: selectedSector?.id,
+                    row: clickedSeat.row,
+                    seat: clickedSeat.number
+                })
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+                setSelectedSeat(clickedSeat);
+                setIsReserved(true);
+                setTimeLeft(900);
+
+                const expirationTime = Date.now() + 900 * 1000;
+                localStorage.setItem(`lock_ticket_${ticketId}`, JSON.stringify({
+                    sector: selectedSector,
+                    seat: clickedSeat,
+                    expiresAt: expirationTime
+                }));
+
+                setSeats(prev => prev.map(s => {
+                    if (s.id === clickedSeat.id) return { ...s, status: 'selected' as const };
+                    if (s.status === 'selected') return { ...s, status: 'available' as const };
+                    return s;
+                }));
+
+                setModal({
+                    isOpen: true,
+                    type: 'success',
+                    title: 'Seat Secured',
+                    message: `Successfully claimed an active hold on Row ${clickedSeat.row}, Seat ${clickedSeat.number}.`
+                });
+            } else {
+                setModal({
+                    isOpen: true,
+                    type: 'error',
+                    title: 'Seat Unavailable',
+                    message: result.message || "This specific seat is already taken."
+                });
+
+                // Перекрашиваем в зарезервированное, так как бэкенд отказал
+                setSeats(prev => prev.map(s => s.id === clickedSeat.id ? { ...s, status: 'reserved' as const } : s));
             }
-            return { ...seat, status: seat.status === 'selected' ? 'available' : seat.status };
-        }));
+        } catch (error) {
+            setModal({
+                isOpen: true,
+                type: 'error',
+                title: 'Network Failure',
+                message: "Could not establish a connection to the ticket booking server."
+            });
+        }
     };
 
-    const handleLockSeat = () => {
-        if (!selectedSeat || !selectedSector) return;
-        
-        setIsReserved(true);
-        setTimeLeft(900);
-
-        const expirationTime = Date.now() + 900 * 1000;
-
-        localStorage.setItem(`lock_ticket_${ticketId}`, JSON.stringify({
-            sector: selectedSector,
-            seat: selectedSeat,
-            expiresAt: expirationTime
-        }));
-    };
-
-    // Функция ручной/автоматической отмены брони
-    const handleCancelReservation = (askConfirm = true) => {
+    const handleCancelReservation = async (askConfirm = true) => {
         if (askConfirm) {
-            const confirmCancel = window.confirm("Are you sure you want to cancel your reservation? This seat will be released.");
+            const confirmCancel = window.confirm("Are you sure you want to cancel your reservation?");
             if (!confirmCancel) return;
         }
 
@@ -157,9 +227,20 @@ export const SeatSelectionPage: React.FC = () => {
     };
 
     const handlePayment = () => {
-        alert(`Payment successful! ${selectedSector?.name} • Row ${selectedSeat?.row}, Seat ${selectedSeat?.number} is secured.`);
         localStorage.removeItem(`lock_ticket_${ticketId}`);
-        navigate('/userpage');
+        setModal({
+            isOpen: true,
+            type: 'success',
+            title: 'Transaction Authorized',
+            message: `Payment successful! Row ${selectedSeat?.row}, Seat ${selectedSeat?.number} is secured.`
+        });
+    };
+
+    const handleCloseModal = () => {
+        setModal(prev => ({ ...prev, isOpen: false }));
+        if (modal.title === 'Transaction Authorized') {
+            navigate('/userpage');
+        }
     };
 
     const handleSectorChange = () => {
@@ -171,7 +252,7 @@ export const SeatSelectionPage: React.FC = () => {
 
     const rows = Array.from({ length: 10 }, (_, i) => i + 1);
 
-    if (loading) {
+    if (loading && seats.length === 0) {
         return (
             <div className="bg-gray-950 text-gray-100 min-h-screen flex items-center justify-center">
                 <div className="animate-spin border-4 w-8 h-8 border-purple-500 border-t-transparent rounded-full" />
@@ -180,7 +261,7 @@ export const SeatSelectionPage: React.FC = () => {
     }
 
     return (
-        <div className="bg-gray-950 text-gray-100 min-h-screen font-sans flex flex-col justify-between selection:bg-purple-500/30">
+        <div className="bg-gray-950 text-gray-100 min-h-screen font-sans flex flex-col justify-between">
             <header className="border-b border-gray-900 bg-gray-950/80 backdrop-blur sticky top-0 z-50">
                 <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
                     <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/mainpage')}>
@@ -193,17 +274,14 @@ export const SeatSelectionPage: React.FC = () => {
             </header>
 
             <main className="flex-grow max-w-7xl w-full mx-auto px-4 py-8 flex flex-col lg:flex-row gap-8 items-start">
-                
                 <div className="flex-grow w-full bg-gray-900/20 border border-gray-900 rounded-3xl p-8 flex flex-col items-center overflow-x-auto shadow-2xl backdrop-blur-sm">
-                    
                     {!selectedSector ? (
                         <div className="w-full max-w-2xl text-center py-6">
                             <h2 className="text-xl font-black text-white mb-2">Select Arena Sector</h2>
                             <p className="text-xs text-gray-500 mb-10">Choose your target grandstand zone.</p>
-                            
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-xl mx-auto">
                                 {sectors.map((sec) => (
-                                    <div 
+                                    <div
                                         key={sec.id}
                                         onClick={() => setSelectedSector(sec)}
                                         className={`border rounded-2xl p-5 cursor-pointer transition duration-300 transform hover:-translate-y-1 bg-gray-900/40 text-center flex flex-col justify-between h-36 ${sec.color}`}
@@ -221,7 +299,7 @@ export const SeatSelectionPage: React.FC = () => {
                         <>
                             <div className="w-full flex items-center justify-between mb-8 border-b border-gray-900 pb-4">
                                 <div className="flex items-center gap-3">
-                                    <button 
+                                    <button
                                         onClick={handleSectorChange}
                                         disabled={isReserved}
                                         className={`text-xs px-3 py-1.5 rounded-xl border border-gray-800 transition ${isReserved ? 'opacity-50 cursor-not-allowed text-gray-600' : 'bg-gray-900 hover:bg-gray-800 text-purple-400'}`}
@@ -243,13 +321,12 @@ export const SeatSelectionPage: React.FC = () => {
                                     const curvePadding = Math.abs(5.5 - rowNum) * 4;
 
                                     return (
-                                        <div 
-                                            key={rowNum} 
+                                        <div
+                                            key={rowNum}
                                             className="flex items-center justify-center gap-1.5"
                                             style={{ paddingLeft: `${curvePadding}px`, paddingRight: `${curvePadding}px` }}
                                         >
                                             <span className="w-6 text-[10px] font-mono text-gray-600 font-bold text-right mr-3 select-none">R{rowNum}</span>
-                                            
                                             {rowSeats.map((seat) => {
                                                 const isSelected = seat.status === 'selected';
                                                 const isReservedStatus = seat.status === 'reserved';
@@ -259,12 +336,11 @@ export const SeatSelectionPage: React.FC = () => {
                                                     <button
                                                         key={seat.id}
                                                         disabled={isReservedStatus || (isReserved && !isSelected)}
-                                                        onClick={() => handleSeatClick(seat.id)}
-                                                        className={`h-7 w-7 text-[9px] font-bold rounded-md border transition-all duration-150 ${aisleClass} ${
-                                                            isReservedStatus ? "bg-red-950/10 border-red-900/20 text-red-900/40 cursor-not-allowed" :
-                                                            isSelected ? "bg-gradient-to-br from-purple-500 to-indigo-600 border-purple-400 text-white shadow-[0_0_12px_rgba(168,85,247,0.5)] scale-105" :
-                                                            "bg-gray-900 border-gray-800 text-gray-500 hover:border-purple-500/50 hover:text-gray-200 hover:scale-105"
-                                                        }`}
+                                                        onClick={() => handleSeatClick(seat)}
+                                                        className={`h-7 w-7 text-[9px] font-bold rounded-md border transition-all duration-150 ${aisleClass} ${isReservedStatus ? "bg-red-950/10 border-red-900/20 text-red-900/40 cursor-not-allowed" :
+                                                                isSelected ? "bg-gradient-to-br from-purple-500 to-indigo-600 border-purple-400 text-white shadow-[0_0_12px_rgba(168,85,247,0.5)] scale-105" :
+                                                                    "bg-gray-900 border-gray-800 text-gray-500 hover:border-purple-500/50 hover:text-gray-200 hover:scale-105"
+                                                            }`}
                                                         title={`${selectedSector.name} • Row ${seat.row} • Seat ${seat.number}`}
                                                     >
                                                         {seat.number}
@@ -288,7 +364,6 @@ export const SeatSelectionPage: React.FC = () => {
 
                 <div className="w-full lg:w-80 bg-gray-900 border border-gray-900 rounded-3xl p-6 shrink-0 shadow-xl">
                     <h2 className="text-xs font-bold tracking-wider text-gray-400 uppercase border-b border-gray-800 pb-4">Checkout Panel</h2>
-
                     {selectedSeat && selectedSector ? (
                         <div className="mt-5 space-y-4">
                             <div className="bg-gray-950 p-4 rounded-2xl border border-gray-850">
@@ -296,8 +371,7 @@ export const SeatSelectionPage: React.FC = () => {
                                 <p className="text-lg font-extrabold text-white mt-1">Row {selectedSeat.row}, Seat {selectedSeat.number}</p>
                                 <span className="text-[11px] text-purple-400 font-medium block mt-1">{selectedSector.name}</span>
                             </div>
-
-                            {isReserved ? (
+                            {isReserved && (
                                 <div className="bg-yellow-950/10 border border-yellow-900/30 p-4 rounded-2xl space-y-3">
                                     <div className="flex items-center justify-between">
                                         <span className="text-xs font-bold text-yellow-500 uppercase tracking-wider">Redis Hold Active</span>
@@ -312,7 +386,6 @@ export const SeatSelectionPage: React.FC = () => {
                                     >
                                         Authorize Payment
                                     </button>
-                                    {/* ДОБАВЛЕННАЯ КНОПКА ОТМЕНЫ */}
                                     <button
                                         onClick={() => handleCancelReservation(true)}
                                         className="w-full bg-transparent hover:bg-red-950/20 text-red-400 border border-red-900/40 py-2.5 rounded-xl font-bold text-[11px] tracking-wider transition uppercase"
@@ -320,25 +393,41 @@ export const SeatSelectionPage: React.FC = () => {
                                         Cancel Lock
                                     </button>
                                 </div>
-                            ) : (
-                                <button
-                                    onClick={handleLockSeat}
-                                    className="w-full bg-purple-600 hover:bg-purple-500 text-white py-3 rounded-xl font-bold text-xs tracking-wider transition uppercase shadow-lg shadow-purple-950/30"
-                                >
-                                    Acquire 15-Min Hold
-                                </button>
                             )}
                         </div>
                     ) : (
                         <div className="text-center py-16 text-gray-600 text-xs border border-dashed border-gray-800 rounded-2xl mt-5 px-4 leading-relaxed">
-                            {!selectedSector 
-                                ? "Select a conceptual stadium sector zone inside the matrix layout first." 
+                            {!selectedSector
+                                ? "Select a conceptual stadium sector zone inside the matrix layout first."
                                 : "Click on any open operational location within the grandstand block matrix to assign booking nodes."
                             }
                         </div>
                     )}
                 </div>
             </main>
+
+            {modal.isOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/75 backdrop-blur-sm p-4">
+                    <div className="bg-gray-900 border border-gray-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl">
+                        <div className="flex items-center gap-3 mb-4">
+                            {modal.type === 'success' && <div className="h-8 w-8 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-center text-emerald-400 font-bold">✓</div>}
+                            {modal.type === 'error' && <div className="h-8 w-8 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center justify-center text-red-400 font-bold">✕</div>}
+                            {modal.type === 'info' && <div className="h-8 w-8 bg-blue-500/10 border border-blue-500/30 rounded-xl flex items-center justify-center text-blue-400 font-bold">i</div>}
+                            <h3 className="text-sm font-black text-white uppercase tracking-wider">{modal.title}</h3>
+                        </div>
+                        <p className="text-xs text-gray-400 leading-relaxed mb-6">{modal.message}</p>
+                        <button
+                            onClick={handleCloseModal}
+                            className={`w-full py-2.5 rounded-xl font-bold text-xs tracking-wider uppercase transition border ${modal.type === 'success' ? 'bg-emerald-600 hover:bg-emerald-500 border-emerald-500 text-white' :
+                                    modal.type === 'error' ? 'bg-red-600 hover:bg-red-500 border-red-500 text-white' :
+                                        'bg-purple-600 hover:bg-purple-500 border-purple-500 text-white'
+                                }`}
+                        >
+                            Acknowledge
+                        </button>
+                    </div>
+                </div>
+            )}
 
             <footer className="border-t border-gray-900 bg-gray-950 py-5 text-center text-[10px] text-gray-600 tracking-wide">
                 &copy; 2026 TicketPro Ecosystem. High-Performance Concierge Architecture.
