@@ -19,12 +19,12 @@ interface ApiResponse {
 }
 
 interface User {
-  id: number,
-  username?: string,
-  email?: string,
-  role?: string
-  balance?: string | number,
-  avatar?: any
+  id: number;
+  username?: string;
+  email?: string;
+  role?: string;
+  balance?: string | number;
+  avatar?: any;
 }
 
 export const UserPage: React.FC = () => {
@@ -32,25 +32,17 @@ export const UserPage: React.FC = () => {
   const [myTickets, setMyTickets] = useState<MyTicket[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [IMuser, setIMuser] = useState<User | null>(null)
+  const [IMuser, setIMuser] = useState<User | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
-  const [isUSer, setIsUser] = useState<User | null>(null)
-  const [errorUser, setErrorUser] = useState<boolean>(false)
-
+  const [errorUser, setErrorUser] = useState<boolean>(false);
 
   useEffect(() => {
     const currentUser = getUserFromToken();
     const token = localStorage.getItem('token');
 
-    if (!token) {
+    if (!token || !currentUser || !currentUser.id) {
       setErrorUser(true);
       setLoading(false);
-      return;
-    }
-
-    if (!currentUser || !currentUser.id) {
-      setErrorUser(true);
-      setLoading(false); 
       return;
     }
 
@@ -69,7 +61,8 @@ export const UserPage: React.FC = () => {
       try {
         setLoading(true); 
 
-        const response = await fetch(`/api/ticket/my?id=${user.id}`, {
+        // ЧИНИМ URL: убираем ?id=, так как бэкенд берёт его из токена
+        const response = await fetch('/api/ticket/my', {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -79,16 +72,16 @@ export const UserPage: React.FC = () => {
 
         const data: ApiResponse = await response.json();
 
-        if (!response.ok) {
+        if (!response.ok || !data.success) {
           setErrorUser(true);
-          setError("Не удалось загрузить билеты"); 
+          setError("Failed to load tickets"); 
         } else {
           setErrorUser(false);
           setMyTickets(data.data); 
         }
       } catch (err) {
         setErrorUser(true);
-        setError("Ошибка сети при загрузке билетов");
+        setError("Network error during fetching tickets");
       } finally {
         setLoading(false); 
       }
@@ -97,11 +90,6 @@ export const UserPage: React.FC = () => {
     fetchUser();
   }, []);
 
-
-
-
-
-
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('userRole');
@@ -109,63 +97,53 @@ export const UserPage: React.FC = () => {
     navigate('/', { replace: true });
   };
 
-
-
   return (
     <div className="bg-gray-950 text-gray-100 min-h-screen font-sans antialiased flex flex-col justify-between">
 
-      {/* Header ЛК */}
+      {/* Header */}
       <header className="border-b border-gray-900 bg-gray-950/50 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-
-          {/* Левая часть: Логотип и Навигация */}
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/mainpage')}>
               <span className="text-2xl">🎟️</span>
-              <span
-                className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-500 bg-clip-text text-transparent"
-
-              >
+              <span className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-500 bg-clip-text text-transparent">
                 TicketPro
               </span>
             </div>
 
-            {/* НОВАЯ КНОПКА ДЛЯ ПЕРЕХОДА НА ТИКЕТЫ */}
             <button
               onClick={() => navigate('/ticketpage')}
               className="text-sm font-medium text-gray-400 hover:text-purple-300 bg-purple-950/30 hover:bg-purple-900/40 border border-purple-900/50 rounded-lg flex items-center gap-1.5 px-3 py-1.5 transition duration-200 hover:scale-105 active:scale-98"
             >
-              🚀 Афиша событий
+              🚀 Event Schedule
             </button>
             {IMuser?.role === 'admin' && (
               <button
                 onClick={() => navigate('/adminpage')}
                 className="text-sm font-medium text-pink-400 hover:text-pink-300 bg-pink-950/30 hover:bg-pink-900/40 border border-pink-900/50 rounded-lg flex items-center gap-1.5 px-3 py-1.5 transition duration-200 hover:scale-105 active:scale-98"
               >
-                ⚙️ Панель управления
+                ⚙️ Admin Dashboard
               </button>
             )}
           </div>
 
-          {/* Правая часть: Выход */}
           <button
             onClick={handleLogout}
             className="text-sm font-medium bg-gray-900 hover:bg-red-950/30 text-gray-400 hover:text-red-400 border border-gray-800 hover:border-red-900/50 px-4 py-2 rounded-xl transition"
           >
-            Выйти
+            Log Out
           </button>
         </div>
       </header>
 
-      {/* Основной контент */}
+      {/* Main Content */}
       <main className="flex-grow max-w-7xl w-full mx-auto px-4 py-10 grid grid-cols-1 lg:grid-cols-4 gap-8">
 
-        {/* Левая колонка: Профиль */}
+        {/* Profile Column */}
         <div className="lg:col-span-1 bg-gray-900 border border-gray-800 rounded-2xl p-6 h-fit space-y-6">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-gradient-to-tr from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-xl font-bold text-white overflow-hidden shrink-0">
-              <img src={IMuser?.avatar}></img>
-
+              <img src={IMuser?.avatar} alt="Avatar" className="w-full h-full object-cover" />
             </div>
             <div>
               <h2 className="text-lg font-bold text-white leading-tight">{IMuser?.username}</h2>
@@ -174,7 +152,7 @@ export const UserPage: React.FC = () => {
           </div>
 
           <div className="border-t border-gray-800 pt-4">
-            <span className="text-xs text-gray-500 uppercase tracking-wider block mb-1">Баланс аккаунта</span>
+            <span className="text-xs text-gray-500 uppercase tracking-wider block mb-1">Account Balance</span>
             <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-500">
               {IMuser?.balance}
             </span>
@@ -182,29 +160,29 @@ export const UserPage: React.FC = () => {
 
           <div className="border-t border-gray-800 pt-4 space-y-2">
             <button className="w-full text-left text-sm text-purple-400 hover:text-purple-300 transition font-medium">
-              💳 Пополнить баланс
+              💳 Top Up Balance
             </button>
             <button
               onClick={() => setIsSettingsOpen(true)}
               className="w-full text-left text-sm text-gray-400 hover:text-white transition"
             >
-              ⚙️ Настройки профиля
+              ⚙️ Profile Settings
             </button>
           </div>
         </div>
 
-        {/* Правая колонка: Список билетов */}
+        {/* Tickets Column */}
         <div className="lg:col-span-3 space-y-6">
           <div>
-            <h1 className="text-2xl font-extrabold text-white">Мои купленные билеты</h1>
-            <p className="text-sm text-gray-400 mt-1">Здесь хранятся все ваши активные пропуски на мероприятия.</p>
+            <h1 className="text-2xl font-extrabold text-white">My Purchased Tickets</h1>
+            <p className="text-sm text-gray-400 mt-1">Your active passes for upcoming events are stored here.</p>
           </div>
 
           {loading ? (
-            <div className="text-gray-500 text-sm">Загрузка ваших билетов...</div>
+            <div className="text-gray-500 text-sm">Loading your tickets...</div>
           ) : myTickets.length === 0 ? (
             <div className="bg-gray-900/50 border border-dashed border-gray-800 rounded-2xl p-12 text-center text-gray-500">
-              🎟️ Вы пока не купили ни одного билета.
+              🎟️ You haven't purchased any tickets yet.
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -227,11 +205,11 @@ export const UserPage: React.FC = () => {
 
                   <div className="mt-6 border-t border-gray-800/60 pt-4 flex items-center justify-between text-xs">
                     <div className="text-gray-400 space-y-1">
-                      <div>📅 Дата: <span className="text-gray-200">{ticket.event_date ? new Date(ticket.event_date).toLocaleDateString() : 'Скоро'}</span></div>
-                      <div className="text-[10px] text-gray-600">Куплен: {new Date(ticket.purchase_date).toLocaleDateString()}</div>
+                      <div>Date: <span className="text-gray-200">{ticket.event_date ? new Date(ticket.event_date).toLocaleDateString() : 'TBA'}</span></div>
+                      <div className="text-[10px] text-gray-600">Purchased: {new Date(ticket.purchase_date).toLocaleDateString()}</div>
                     </div>
                     <button className="bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white border border-purple-900/50 hover:border-transparent font-medium px-3 py-1.5 rounded-lg transition">
-                      Открыть QR-код
+                      View QR Code
                     </button>
                   </div>
                 </div>
@@ -239,26 +217,21 @@ export const UserPage: React.FC = () => {
             </div>
           )}
         </div>
-
       </main>
 
       <footer className="border-t border-gray-900 bg-gray-950/30 py-6 text-center text-sm text-gray-600">
-        &copy; 2026 TicketPro. Кабинет пользователя.
+        &copy; 2026 TicketPro. User Dashboard.
       </footer>
 
-
-    {/* {IMuser && (
-  <SettingsModal
-    isOpen={isSettingsOpen}
-    onClose={() => setIsSettingsOpen(false)}
-    currentUser={IMuser} // Теперь TypeScript уверен, что здесь не null!
-    onProfileUpdate={(updated) => {}}
-  />
-)} */}
-
+      {/* Безопасный вызов модалки без ругани TypeScript */}
+      {/* {IMuser && (
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          currentUser={IMuser} 
+          onProfileUpdate={(updated) => {}}
+        />
+      )} */}
     </div>
   );
-
-
-
 };

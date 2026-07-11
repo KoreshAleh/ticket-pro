@@ -13,10 +13,15 @@ import { HomePage } from './page/dashboard/MainPage'
 import { UserPage } from './page/dashboard/PageForUser'
 import ProtectedRoute from './page/protectedPage/ProtectedRoute'
 import NotFound from './page/ErrorPage/NotFound'
+import { SeatSelectionPage } from './page/dashboard/SeatSelectionPage'
 
 
 
 const router = createBrowserRouter([
+  {
+    path: `selection-page/:id`,
+    element: <ProtectedRoute element={<SeatSelectionPage />}  allowedRoles={['admin', 'user']}/>
+  },
   {
     path: '/mainpage',
     element: <HomePage  />

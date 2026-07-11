@@ -104,6 +104,7 @@ export const HomePage: React.FC = () => {
             }
         } else {
             setIsLoginOpen(true);
+            setIsRegisterOpen(false)
         }
     };
 
@@ -120,7 +121,7 @@ export const HomePage: React.FC = () => {
                         </span>
                     </div>
                     <button
-                        onClick={() => { setIsRegisterOpen(false); setIsLoginOpen(true); }}
+                        onClick={checkLogin}
                         className="text-sm font-medium bg-purple-600 hover:bg-purple-500 text-white px-5 py-2 rounded-xl transition active:scale-95 shadow-lg shadow-purple-600/20"
                     >
                         Sign In

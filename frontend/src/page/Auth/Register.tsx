@@ -39,10 +39,10 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
 
       if (!response.ok) {
         setIsError(true);
-        setMessage(data.message || 'Что-то пошло не так');
+        setMessage(data.message || 'Something went wrong');
       } else {
         setIsError(false);
-        setMessage('Аккаунт создан! Входим...');
+        setMessage('Account created! Logging in...');
 
         localStorage.setItem('token', data.token);
         localStorage.setItem('userRole', data.user.role);
@@ -62,7 +62,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
     } catch (err) {
       console.error(err);
       setIsError(true);
-      setMessage('Не удалось связаться с сервером');
+      setMessage('Server connection error');
     } finally {
       setLoading(false);
     }
@@ -73,25 +73,25 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose}></div>
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 max-w-md w-full relative z-10 shadow-2xl">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-white">Регистрация</h2>
+          <h2 className="text-2xl font-bold text-white">Sign Up</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-white text-xl">✕</button>
         </div>
 
         <form onSubmit={handleRegister} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Имя пользователя</label>
+            <label className="block text-sm font-medium text-gray-400 mb-1">Username</label>
             <input 
               type="text" 
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Иван" 
+              placeholder="John Doe" 
               className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition text-sm"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Электронная почта</label>
+            <label className="block text-sm font-medium text-gray-400 mb-1">Email Address</label>
             <input 
               type="email" 
               value={email}
@@ -103,7 +103,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Пароль</label>
+            <label className="block text-sm font-medium text-gray-400 mb-1">Password</label>
             <input 
               type="password" 
               value={password}
@@ -121,12 +121,12 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
               loading ? 'bg-gray-700 text-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white'
             }`}
           >
-            {loading ? 'Создание...' : 'Создать аккаунт'}
+            {loading ? 'Creating...' : 'Create Account'}
           </button>
 
           <div className="flex items-center my-4">
             <div className="flex-grow border-t border-gray-800"></div>
-            <span className="mx-4 text-xs text-gray-500 uppercase">или</span>
+            <span className="mx-4 text-xs text-gray-500 uppercase">or</span>
             <div className="flex-grow border-t border-gray-800"></div>
           </div>
 
@@ -135,7 +135,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
             className="flex items-center justify-center gap-3 w-full bg-transparent border border-gray-800 hover:border-gray-700 hover:bg-gray-850 text-gray-200 font-medium py-3 rounded-xl transition text-sm text-center"
           >
             <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" alt="Google" className="w-5 h-5" />
-            Войти через Google
+            Sign in with Google
           </a>
         </form>
 
@@ -146,9 +146,9 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
         )}
 
         <div className="text-center mt-6 text-xs text-gray-500">
-          Уже есть аккаунт?{' '}
+          Already have an account?{' '}
           <button onClick={onSwitchToLogin} className="text-purple-400 hover:underline bg-transparent border-none cursor-pointer">
-            Войти
+            Sign In
           </button>
         </div>
       </div>
