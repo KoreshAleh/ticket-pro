@@ -6,8 +6,6 @@ import { SeatDto } from "./dto/ticketId.dto";
 
 export class BookingController {
     static async CheckBookSeat(req: Request<{}, {}, SeatDto>, res: Response) {
-        const { userId, ticketId, row, seat, sectorId } = req.body
-
         try {
             const result = await BookingService.CheckSeat(req.body)
             return res.status(200).json({
@@ -53,6 +51,16 @@ export class BookingController {
                 success: false,
                 message: "Error fetching seats from cluster"
             });
+        }
+    }
+
+
+    static async CancelBookSeat(req: Request<{}, {}, SeatDto>, res: Response){
+        try{
+            await BookingService.cancelBookSeat(req.body)
+            return res.status(200).json({ success: true, message: "Hold released successfully" });
+        }catch(err){
+            return res.status(500).json({ success: false, message: "Error releasing hold" });
         }
     }
 }

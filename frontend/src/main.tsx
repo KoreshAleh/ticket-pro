@@ -5,8 +5,6 @@ import { LoginModal } from './page/Auth/Login'
 import { RegisterModal } from './page/Auth/Register'
 import { PageForAdmin } from './page/dashboard/PageForAdmin'
 import RootRedirect from './page/rootRedirect/RootRedirect'
-// import { useState } from 'react'
-// import { useEffect } from 'react'
 import { TicketsPage } from './page/dashboard/TicketPage'
 import './index.css'
 import { HomePage } from './page/dashboard/MainPage'
@@ -14,10 +12,16 @@ import { UserPage } from './page/dashboard/PageForUser'
 import ProtectedRoute from './page/protectedPage/ProtectedRoute'
 import NotFound from './page/ErrorPage/NotFound'
 import { SeatSelectionPage } from './page/dashboard/SeatSelectionPage'
+import { SuccessPage } from './page/dashboard/SuccessPayPage'
+
 
 
 
 const router = createBrowserRouter([
+  {
+    path: '/success',
+    element: <ProtectedRoute element={<SuccessPage />} allowedRoles={['admin', 'user']} />
+  },
   {
     path: `selection-page/:id`,
     element: <ProtectedRoute element={<SeatSelectionPage />}  allowedRoles={['admin', 'user']}/>

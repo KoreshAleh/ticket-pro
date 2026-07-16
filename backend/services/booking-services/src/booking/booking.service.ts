@@ -6,6 +6,7 @@ import { TicketSeatEntity } from "./entities/ticket.seat.entity";
 
 
 
+
 export class BookingService {
     static async CheckSeat(dto: SeatDto) {
 
@@ -78,6 +79,23 @@ export class BookingService {
     return result.rows
 }
 
+
+    static async cancelBookSeat(dto: SeatDto){
+        const cacheKey = `ticketSeat:${dto.ticketId}:${dto.sectorId}:${dto.row}:${dto.seat}`
+
+        await redisClient.del(cacheKey)
+
+
+        const pool1 = await pool.query(`
+        UPDATE ticket_seats 
+        SET status = 'available', user_id = NULL, locked_at = NULL 
+        WHERE ticket_id = $1 AND sector_id = $2 AND row_number = $3 AND seat_number = $4 AND status = 'selected' AND user_id = $5
+    `, [dto.ticketId, dto.sectorId, dto.row, dto.seat, dto.userId]);
+
+        if(pool1.rowCount == 0){
+            console.log("pizda niczego ne udalili ")
+        }
+    }
 
 
 
