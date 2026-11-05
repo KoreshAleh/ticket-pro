@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/useAuth';
+import { usePreferences } from '../../context/preferences-context';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -9,6 +11,8 @@ interface LoginModalProps {
 
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSwitchToRegister }) => {
   const navigate = useNavigate();
+  const { refreshUser } = useAuth();
+  const { t } = usePreferences();
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [message, setMessage] = useState<string>('');
@@ -22,49 +26,42 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSwitc
     setLoading(true);
     setMessage('');
     setIsError(false);
-    
-    localStorage.removeItem('token');
-    localStorage.removeItem('userRole');
-    localStorage.removeItem('isAuthenticated');
 
     try {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // 👈 Ключевая фишка для HttpOnly Cookie
         body: JSON.stringify({ email, password }),
       });
 
       const data = await response.json();
 
-      if (!response.ok) {
+      if (!response.ok || !data.success) {
         setIsError(true);
-        setMessage(data.message || 'Wrong email or password');
+        setMessage(t(data.message || 'Wrong email or password'));
       } else {
+        await refreshUser();
         setIsError(false);
-        setMessage('Success! Redirecting...');
-
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('userRole', data.user.role);
-        localStorage.setItem('isAuthenticated', 'true');
-
-        setTimeout(() => {
-          if (data.user.role === 'admin') {
-            navigate('/adminpage');
-          } else {
-            navigate('/userpage');
-          }
-        }, 1000);
+        setMessage(t('Success! Redirecting...'));
 
         setTimeout(() => {
           setEmail('');
           setPassword('');
           onClose();
-        }, 1100);
+
+          // Перенаправляем в зависимости от роли
+          if (data.user?.role === 'admin') {
+            navigate('/adminpage');
+          } else {
+            navigate('/userpage');
+          }
+        }, 800);
       }
     } catch (err) {
       console.error(err);
       setIsError(true);
-      setMessage('Server connection error');
+      setMessage(t('Server connection error'));
     } finally {
       setLoading(false);
     }
@@ -75,48 +72,47 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSwitc
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose}></div>
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 max-w-md w-full relative z-10 shadow-2xl">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-white">Sign In</h2>
+          <h2 className="text-2xl font-bold text-white">{t('Sign In')}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-white text-xl">✕</button>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Email Address</label>
-            <input 
-              type="email" 
+            <label className="block text-sm font-medium text-gray-400 mb-1">{t('Email Address')}</label>
+            <input
+              type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@example.com" 
+              placeholder="name@example.com"
               className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition text-sm"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Password</label>
-            <input 
-              type="password" 
+            <label className="block text-sm font-medium text-gray-400 mb-1">{t('Password')}</label>
+            <input
+              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••" 
+              placeholder="••••••••"
               className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition text-sm"
               required
             />
           </div>
 
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={loading}
-            className={`w-full font-medium py-3 rounded-xl transition mt-2 active:scale-95 ${
-              loading ? 'bg-gray-700 text-gray-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-500 text-white'
-            }`}
+            className={`w-full font-medium py-3 rounded-xl transition mt-2 active:scale-95 ${loading ? 'bg-gray-700 text-gray-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-500 text-white'
+              }`}
           >
-            {loading ? 'Verifying...' : 'Sign In'}
+            {loading ? t('Verifying...') : t('Sign In')}
           </button>
 
           <div className="flex items-center my-4">
             <div className="flex-grow border-t border-gray-800"></div>
-            <span className="mx-4 text-xs text-gray-500 uppercase">or</span>
+            <span className="mx-4 text-xs text-gray-500 uppercase">{t('or')}</span>
             <div className="flex-grow border-t border-gray-800"></div>
           </div>
 
@@ -125,7 +121,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSwitc
             className="flex items-center justify-center gap-3 w-full bg-transparent border border-gray-800 hover:border-gray-700 hover:bg-gray-850 text-gray-200 font-medium py-3 rounded-xl transition text-sm text-center"
           >
             <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" alt="Google" className="w-5 h-5" />
-            Sign in with Google
+            {t('Sign in with Google')}
           </a>
         </form>
 
@@ -136,9 +132,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSwitc
         )}
 
         <div className="text-center mt-6 text-xs text-gray-500">
-          Don't have an account?{' '}
+          {t("Don't have an account?")}{' '}
           <button onClick={onSwitchToRegister} className="text-purple-400 hover:underline bg-transparent border-none cursor-pointer">
-            Sign Up
+            {t('Sign Up')}
           </button>
         </div>
       </div>

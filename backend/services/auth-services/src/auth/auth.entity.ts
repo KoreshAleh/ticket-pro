@@ -5,4 +5,5 @@ export interface UserEntity {
     password_hash?: string; // google-user doesnt have password
     role: string;
     at_created?: Date;
+    balance: number
 }

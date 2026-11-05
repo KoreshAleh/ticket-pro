@@ -1,34 +1,41 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
+import { useAuth } from '../../context/useAuth';
 
 interface ProtectedRouteProps {
   element: React.ReactElement;
   allowedRoles: string[];
 }
 
-function ProtectedRoute({ element, allowedRoles }: ProtectedRouteProps) {
-  // Вытаскиваем данные из localStorage
-  const token = localStorage.getItem('token');
-  const userRole = localStorage.getItem('userRole');
-  const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ element, allowedRoles }) => {
+  const { user, loading } = useAuth();
 
-  // 1. Если токена нет или флаг авторизации false — жесткий редирект на логин
-  if (!token || token === 'undefined' || !isAuthenticated) {
-    return <Navigate to="/mainpage" replace />;
-  }
-
-  // 2. If user's role is not allowed for this page — 403 Access Denied
-  if (!allowedRoles.includes(userRole || '')) {
+  // Пока идет запрос на /api/auth/me — показываем прелоадер
+  if (loading) {
     return (
-      <div style={{ padding: '50px', textAlign: 'center', fontFamily: 'Arial, sans-serif' }}>
-        <h2 style={{ color: '#dc3545' }}>🚫 403 - Access Denied</h2>
-        <p style={{ color: '#666' }}>You do not have permission to access this page.</p>
+      <div className="bg-gray-950 text-gray-100 min-h-screen flex items-center justify-center">
+        <div className="animate-spin border-4 w-8 h-8 border-purple-500 border-t-transparent rounded-full" />
       </div>
     );
   }
 
-  // 3. Если всё совпало — показываем страницу
+  // 1. Если пользователь не авторизован — редиректим на главную/логин
+  if (!user) {
+    return <Navigate to="/mainpage" replace />;
+  }
+
+  // 2. Проверка ролей
+  if (!allowedRoles.includes(user.role)) {
+    return (
+      <div style={{ padding: '50px', textAlign: 'center', fontFamily: 'Arial, sans-serif', color: '#fff', backgroundColor: '#030712', minHeight: '100vh' }}>
+        <h2 style={{ color: '#dc3545' }}>403 - Access Denied</h2>
+        <p style={{ color: '#9ca3af' }}>You do not have permission to access this page.</p>
+      </div>
+    );
+  }
+
+  // 3. Всё прошло успешно — показываем страницу
   return element;
-}
+};
 
 export default ProtectedRoute;

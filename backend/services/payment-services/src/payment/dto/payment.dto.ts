@@ -4,4 +4,7 @@ export interface StripePaymentDto{
     userId: number;
     ticketId: number;
     userEmail: string;
+    sectorId: string;
+    row: number;
+    seatNumId: number;
 }

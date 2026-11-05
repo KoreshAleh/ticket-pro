@@ -9,8 +9,9 @@ export interface TicketEntity {
     created_at: string;
     cat_name: string;
     city_name: string;
+    category_id: number;
+    city_id: number;
+    sold_seats?: number;
 }
-
-
 
 

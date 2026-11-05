@@ -6,5 +6,7 @@ export interface TicketSeatEntity {
     seat_number: number;
     status: string;
     user_id: number;
-    locked_at: Date
+    locked_at: Date | null
+    hold_expires_at: Date | null
+    price: number
 }

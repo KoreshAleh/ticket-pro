@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typewriter } from 'react-simple-typewriter';
 import { LoginModal } from '../Auth/Login';
 import { RegisterModal } from '../Auth/Register';
+import { useAuth } from '../../context/useAuth';
+import { usePreferences } from '../../context/preferences-context';
+import { PreferenceControls } from '../../context/PreferencesContext';
 
 interface Ticket {
     id: number;
@@ -12,190 +14,252 @@ interface Ticket {
     event_date: string | null;
 }
 
-interface ApiResponse {
-    success: boolean;
-    data: Ticket[];
-}
+const phrases = [
+    'All the best events in just one click',
+    'Discover amazing live experiences'
+];
+
+const getCardsPerView = (width: number) => width < 640 ? 1 : width < 1024 ? 2 : 3;
 
 export const HomePage: React.FC = () => {
     const navigate = useNavigate();
+    const { user, refreshUser } = useAuth();
+    const { t } = usePreferences();
 
     const [isLoginOpen, setIsLoginOpen] = useState<boolean>(false);
     const [isRegisterOpen, setIsRegisterOpen] = useState<boolean>(false);
-    const [isToken, setIsToken] = useState<boolean>(() => {
-        return !!localStorage.getItem('token');
-    });
 
     const [featuredEvents, setFeaturedEvents] = useState<Ticket[]>([]);
     const [currentIndex, setCurrentIndex] = useState<number>(0);
     const [loading, setLoading] = useState<boolean>(true);
+    const [eventsError, setEventsError] = useState<string | null>(null);
+    const [cardsPerView, setCardsPerView] = useState(() => getCardsPerView(window.innerWidth));
 
-    const fetchFeaturedEvents = async () => {
-        try {
-            setLoading(true);
-            const response = await fetch('/api/ticket/');
-            if (!response.ok) throw new Error();
+    const [typedText, setTypedText] = useState('');
 
-            const result: ApiResponse = await response.json();
-            if (result.success && result.data.length > 0) {
-                setFeaturedEvents(result.data);
-            } else {
-                throw new Error();
-            }
-        } catch (error) {
-
-
-        } finally {
-            setLoading(false);
+    useEffect(() => {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            setTypedText(phrases[0]);
+            return;
         }
-    };
+
+        let currentPhraseIndex = 0;
+        let currentCharIndex = 0;
+        let isDeleting = false;
+        let timeoutId: ReturnType<typeof setTimeout>;
+
+        const type = () => {
+            const currentPhrase = t(phrases[currentPhraseIndex]);
+
+            if (!isDeleting) {
+                setTypedText(currentPhrase.substring(0, currentCharIndex + 1));
+                currentCharIndex++;
+
+                if (currentCharIndex === currentPhrase.length) {
+                    isDeleting = true;
+                    timeoutId = setTimeout(type, 2000);
+                    return;
+                }
+                timeoutId = setTimeout(type, 70);
+            } else {
+                setTypedText(currentPhrase.substring(0, currentCharIndex - 1));
+                currentCharIndex--;
+
+                if (currentCharIndex === 0) {
+                    isDeleting = false;
+                    currentPhraseIndex = (currentPhraseIndex + 1) % phrases.length;
+                    timeoutId = setTimeout(type, 500);
+                    return;
+                }
+                timeoutId = setTimeout(type, 40);
+            }
+        };
+
+        timeoutId = setTimeout(type, 100);
+
+        return () => clearTimeout(timeoutId);
+    }, [t]);
+
+    useEffect(() => {
+        const updateCardsPerView = () => setCardsPerView(getCardsPerView(window.innerWidth));
+        window.addEventListener('resize', updateCardsPerView);
+        return () => window.removeEventListener('resize', updateCardsPerView);
+    }, []);
+
+    const visibleCards = Math.max(1, Math.min(cardsPerView, featuredEvents.length));
+
+    useEffect(() => {
+        setCurrentIndex(index => Math.min(index, Math.max(0, featuredEvents.length - visibleCards)));
+    }, [visibleCards, featuredEvents.length]);
+
+    // 2. Очистка URL параметров без вызова refreshUser (он уже вызывается в AuthContext)
+    useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('token')) {
+            try {
+                window.history.replaceState({}, document.title, window.location.pathname);
+            } catch (e) {
+                console.warn("History API restricted:", e);
+            }
+        }
+    }, []); // Пустой массив зависимостей предотвращает зацикливание
+
+    // 3. Загрузка билетов
+    const fetchFeaturedEvents = useCallback(async (showLoading = true) => {
+        try {
+            if (showLoading) setLoading(true);
+            setEventsError(null);
+            const response = await fetch('/api/ticket/', {
+                credentials: 'include',
+                cache: 'no-store'
+            });
+            if (!response.ok) throw new Error(`Event request failed with status ${response.status}.`);
+
+            const result = await response.json();
+            if (!result.success || !Array.isArray(result.data)) throw new Error('The event service returned invalid data.');
+            setFeaturedEvents(result.data);
+        } catch (error) {
+            console.error("Failed to fetch tickets", error);
+            if (showLoading) setFeaturedEvents([]);
+            setEventsError('Events could not be loaded. Please try again later.');
+        } finally {
+            if (showLoading) setLoading(false);
+        }
+    }, []);
 
     useEffect(() => {
         fetchFeaturedEvents();
-    }, []);
-
-    const prevSlide = () => {
-        setCurrentIndex((prev) => {
-            if (featuredEvents.length <= 3) return 0;
-
-            // Если мы в самом начале, перепрыгиваем на последнюю возможную позицию
-            return prev === 0 ? featuredEvents.length - 3 : prev - 1;
-        });
-    };
-
-    const nextSlide = () => {
-        setCurrentIndex((prev) => {
-            if (featuredEvents.length <= 3) return 0;
-
-            // Если дошли до конца (показана последняя тройка карточек),
-            // сбрасываем индекс в 0, чтобы слайдер вернулся в начало
-            return prev >= featuredEvents.length - 3 ? 0 : prev + 1;
-        });
-    };
+    }, [fetchFeaturedEvents]);
 
     useEffect(() => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const googleToken = urlParams.get('token');
-        const googleRole = urlParams.get('role');
+        const refreshWhenVisible = () => {
+            if (document.visibilityState === 'visible') void fetchFeaturedEvents(false);
+        };
+        const interval = window.setInterval(refreshWhenVisible, 60_000);
+        window.addEventListener('focus', refreshWhenVisible);
+        document.addEventListener('visibilitychange', refreshWhenVisible);
+        return () => {
+            window.clearInterval(interval);
+            window.removeEventListener('focus', refreshWhenVisible);
+            document.removeEventListener('visibilitychange', refreshWhenVisible);
+        };
+    }, [fetchFeaturedEvents]);
 
-        if (googleToken && googleRole) {
-            localStorage.setItem('token', googleToken);
-            localStorage.setItem('userRole', googleRole);
-            localStorage.setItem('isAuthenticated', 'true');
-            setIsToken(true);
+    const maxSlideIndex = Math.max(0, featuredEvents.length - visibleCards);
+    const prevSlide = () => setCurrentIndex(index => index === 0 ? maxSlideIndex : index - 1);
 
-            window.history.replaceState({}, document.title, window.location.pathname);
-
-            if (googleRole === 'admin') {
-                navigate('/adminpage', { replace: true });
-            } else {
-                navigate('/userpage', { replace: true });
-            }
-        }
-    }, [navigate]);
+    const nextSlide = () => setCurrentIndex(index => index >= maxSlideIndex ? 0 : index + 1);
 
     const checkLogin = () => {
-        if (isToken) {
-            const role = localStorage.getItem('userRole');
-            if (role === "admin") {
+        if (user) {
+            if (user.role === "admin") {
                 navigate('/adminpage');
             } else {
                 navigate('/userpage');
             }
         } else {
             setIsLoginOpen(true);
-            setIsRegisterOpen(false)
+            setIsRegisterOpen(false);
+        }
+    };
+
+    const handleLoginSuccess = async () => {
+        setIsLoginOpen(false);
+        if (refreshUser) {
+            await refreshUser();
         }
     };
 
     return (
-        <div className="bg-gray-950 text-gray-100 min-h-screen font-sans antialiased flex flex-col justify-between relative">
+        <div className="bg-gray-950 text-gray-100 min-h-screen font-sans antialiased flex flex-col justify-between relative overflow-x-hidden">
 
             {/* Header */}
             <header className="border-b border-gray-900 bg-gray-950/50 backdrop-blur sticky top-0 z-40">
-                <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                <div className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-2">
+                    <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/mainpage')}>
                         <span className="text-2xl">🎟️</span>
                         <span className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-500 bg-clip-text text-transparent">
                             TicketPro
                         </span>
                     </div>
-                    <button
-                        onClick={checkLogin}
-                        className="text-sm font-medium bg-purple-600 hover:bg-purple-500 text-white px-5 py-2 rounded-xl transition active:scale-95 shadow-lg shadow-purple-600/20"
-                    >
-                        Sign In
-                    </button>
+
+                    <div className="ml-auto flex items-center gap-2 sm:gap-3">
+                        <button
+                            onClick={checkLogin}
+                            className="max-w-[48vw] shrink-0 truncate rounded-xl bg-purple-600 px-3 py-2 text-sm font-medium text-white shadow-lg shadow-purple-600/20 transition hover:bg-purple-500 active:scale-95 sm:max-w-none sm:px-5"
+                        >
+                            {user ? `${t('Dashboard')} (${user.username || user.email || t('User')})` : t('Sign In')}
+                        </button>
+                        <PreferenceControls />
+                    </div>
                 </div>
             </header>
 
-            {/* Main Container */}
-            <main className="flex-grow flex flex-col items-center justify-center max-w-7xl w-full mx-auto px-4 pt-2 pb-8 space-y-24">
-                <h1 className="text-4xl sm:text-6xl font-extrabold text-white leading-tight min-h-[100px] sm:min-h-[140px] flex items-center justify-center">
+            {/* Main Content */}
+            <main className="flex-grow flex flex-col items-center justify-center max-w-7xl w-full mx-auto px-4 pt-2 pb-8 space-y-12">
+
+                {/* Печатающийся текст */}
+                <h1 className="min-h-[96px] px-2 text-center text-3xl font-extrabold leading-tight sm:min-h-[140px] sm:text-6xl">
                     <span className="bg-gradient-to-r from-purple-400 via-pink-500 to-red-400 bg-clip-text text-transparent">
-                        <Typewriter
-                            words={['All the best events', 'In just one click']}
-                            loop={0}
-                            cursor
-                            cursorStyle="_"
-                            typeSpeed={70}
-                            deleteSpeed={50}
-                            delaySpeed={1500}
-                        />
+                        {typedText}
                     </span>
+                    <span className="text-pink-500 animate-pulse ml-1">_</span>
                 </h1>
 
                 <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium bg-purple-950/50 text-purple-300 border border-purple-800/50">
-                    🚀 Next-Generation Microservice Platform
+                    🚀 {t('Next-Generation Microservice Platform')}
                 </div>
 
-                {/* --- СЛАЙДЕР СВЕРХУ --- */}
+                {/* Slider */}
                 {!loading && featuredEvents.length > 0 ? (
-                    <div className="w-full max-w-5xl mx-auto space-y-3 relative px-12">
+                    <div className="relative mx-auto w-full max-w-5xl px-12">
                         <div className="relative">
-                            {/* Левая кнопка */}
-                            <button
-                                onClick={prevSlide}
-                                className="absolute -left-12 top-1/2 -translate-y-1/2 w-9 h-9 rounded-xl bg-gray-950 border border-gray-800 flex items-center justify-center text-gray-400 hover:text-white hover:border-gray-700 hover:bg-gray-900 transition z-20 shadow-xl"
-                            >
-                                ←
-                            </button>
-
-                            {/* Правая кнопка */}
-                            <button
-                                onClick={nextSlide}
-                                className="absolute -right-12 top-1/2 -translate-y-1/2 w-9 h-9 rounded-xl bg-gray-950 border border-gray-800 flex items-center justify-center text-gray-400 hover:text-white hover:border-gray-700 hover:bg-gray-900 transition z-20 shadow-xl"
-                            >
-                                →
-                            </button>
-
-                            {/* Окно просмотра слайдера */}
-                            <div className="overflow-hidden w-full rounded-2xl">
+                            {featuredEvents.length > cardsPerView && (
+                                <>
+                                    <button
+                                        type="button"
+                                        aria-label="Previous events"
+                                        onClick={prevSlide}
+                                        className="absolute -left-11 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl border border-gray-800 bg-gray-950 text-gray-400 shadow-xl transition hover:text-white"
+                                    >
+                                        ←
+                                    </button>
+                                    <button
+                                        type="button"
+                                        aria-label="Next events"
+                                        onClick={nextSlide}
+                                        className="absolute -right-11 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl border border-gray-800 bg-gray-950 text-gray-400 shadow-xl transition hover:text-white"
+                                    >
+                                        →
+                                    </button>
+                                </>
+                            )}
+                            <div className="w-full overflow-hidden rounded-2xl">
                                 <div
                                     className="flex transition-transform duration-500 ease-in-out"
-                                    style={{ transform: `translateX(-${currentIndex * 33.3333}%)` }}
+                                    style={{ transform: `translateX(-${currentIndex * (100 / visibleCards)}%)` }}
                                 >
                                     {featuredEvents.map((event) => (
-                                        <div
-                                            key={event.id}
-                                            className="w-1/3 min-w-[33.3333%] px-2 shrink-0 transition"
-                                        >
-                                            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 flex flex-col justify-between h-44 relative overflow-hidden hover:border-gray-700 group w-full">
-                                                <div className="absolute -right-6 -top-6 w-20 h-20 bg-purple-600/10 rounded-full blur-xl group-hover:bg-purple-600/20 transition"></div>
-
+                                        <div key={event.id} className="shrink-0 px-2" style={{ flexBasis: `${100 / visibleCards}%` }}>
+                                            <div className={`relative flex h-44 w-full flex-col justify-between overflow-hidden rounded-2xl border p-4 sm:p-5 ${event.event_date && new Date(event.event_date).getTime() <= Date.now() ? 'border-gray-800 bg-gray-900/60' : 'border-gray-800 bg-gray-900'}`}>
                                                 <div className="space-y-2 relative z-10">
                                                     <span className="text-xl">📅</span>
-                                                    <h3 className="font-bold text-white text-sm sm:text-base line-clamp-2">
+                                                    <h3 className="line-clamp-2 break-words text-sm font-bold text-white">
                                                         {event.title}
                                                     </h3>
+                                                    {event.event_date && new Date(event.event_date).getTime() <= Date.now() && (
+                                                        <span className="inline-block rounded-md border border-gray-700 bg-gray-950 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                                            {t('Event ended')}
+                                                        </span>
+                                                    )}
                                                 </div>
 
-                                                <div className="flex items-center justify-between text-xs pt-3 border-t border-gray-800/60 relative z-10">
+                                                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-800/60 pt-3 text-xs">
                                                     <span className="text-gray-400">
                                                         {event.event_date ? new Date(event.event_date).toLocaleDateString() : 'Soon'}
                                                     </span>
                                                     <span className="font-semibold text-purple-400 bg-purple-950/40 border border-purple-900/30 px-2 py-0.5 rounded-md">
-                                                        {Number(event.price).toLocaleString()} $
+                                                        {Number(event.price) === 0 ? t('Free') : `${Number(event.price).toLocaleString()} $`}
                                                     </span>
                                                 </div>
                                             </div>
@@ -205,48 +269,49 @@ export const HomePage: React.FC = () => {
                             </div>
                         </div>
                     </div>
-                ) : !loading ? (
-                    /* ИЗМЕНЕНО: Красивый блок "Soon", если массив карточек пуст */
-                    <div className="w-full max-w-md mx-auto bg-gray-900/40 border border-dashed border-gray-800 rounded-2xl p-8 text-center text-gray-500">
-                        <span className="text-2xl block mb-2">⏳</span>
-                        <h3 className="text-sm font-semibold text-gray-400">New Events Coming Soon</h3>
-                        <p className="text-xs text-gray-600 mt-1">We are updating our schedule. Stay tuned!</p>
-                    </div>
                 ) : (
-                    /* В процессе загрузки (loading === true) показываем пустой элемент или спиннер */
-                    <div className="h-44 flex items-center justify-center text-gray-500 text-sm">
-                        <span className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mr-2"></span>
-                        Loading events...
+                    <div className="flex h-44 items-center justify-center text-sm text-gray-500">
+                        {loading ? t('Loading events...') : eventsError || t('No events are available yet.')}
                     </div>
                 )}
 
-                {/* --- НИЖНИЙ БЛОК (HERO SECTION) --- */}
-                <div className="max-w-3xl w-full text-center flex flex-col items-center justify-center space-y-12">
+                <div className="max-w-3xl w-full text-center flex flex-col items-center justify-center space-y-8">
                     <p className="text-gray-400 text-base sm:text-lg max-w-xl font-light">
-                        Welcome to TicketPro. Sign in to the system to get access to the current event schedule and fast ticket purchasing.
+                        {t('Welcome to TicketPro. Sign in to the system to get access to the current event schedule and fast ticket purchasing.')}
                     </p>
 
-                    <div className="pt-2">
+                    <div className="relative group">
+                        {user && (
+                            <div className="absolute -inset-1 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 rounded-2xl blur opacity-70 group-hover:opacity-100 transition duration-1000 animate-pulse"></div>
+                        )}
+
                         <button
                             onClick={checkLogin}
-                            className="px-8 py-4 bg-white text-gray-950 font-semibold rounded-2xl hover:bg-gray-100 transition active:scale-95 shadow-xl shadow-white/5"
+                            className={`relative px-8 py-4 font-semibold rounded-2xl transition active:scale-95 shadow-xl overflow-hidden ${
+                                user
+                                    ? 'bg-gradient-to-r from-purple-600 via-pink-500 to-purple-600 bg-[length:200%_auto] animate-gradient text-white border border-purple-400/30'
+                                    : 'bg-white text-gray-950 hover:bg-gray-100 shadow-white/5'
+                            }`}
                         >
-                            Get Started →
+                            {user && (
+                                <span className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-transparent via-white/25 to-transparent -translate-x-full animate-shine"></span>
+                            )}
+
+                            <span className="relative z-10 flex items-center gap-2">
+                                {user ? t('Go to Dashboard →') : t('Get Started →')}
+                            </span>
                         </button>
                     </div>
                 </div>
-
             </main>
 
-            {/* Footer */}
             <footer className="border-t border-gray-900 bg-gray-950/30 py-6 text-center text-sm text-gray-600">
-                &copy; 2026 TicketPro. React + TypeScript + Tailwind CSS.
+                &copy; 2026 TicketPro.
             </footer>
 
-            {/* MODALS */}
             <LoginModal
                 isOpen={isLoginOpen}
-                onClose={() => setIsLoginOpen(false)}
+                onClose={handleLoginSuccess}
                 onSwitchToRegister={() => { setIsLoginOpen(false); setIsRegisterOpen(true); }}
             />
 
@@ -256,6 +321,29 @@ export const HomePage: React.FC = () => {
                 onSwitchToLogin={() => { setIsRegisterOpen(false); setIsLoginOpen(true); }}
             />
 
+            <style>{`
+                @keyframes gradient {
+                    0% { background-position: 0% 50%; }
+                    50% { background-position: 100% 50%; }
+                    100% { background-position: 0% 50%; }
+                }
+
+                @keyframes shine {
+                    0% { transform: translateX(-100%); }
+                    60% { transform: translateX(200%); }
+                    100% { transform: translateX(200%); }
+                }
+
+                .animate-gradient {
+                    animation: gradient 3s ease infinite;
+                }
+
+                .animate-shine {
+                    animation: shine 2.5s infinite;
+                }
+            `}</style>
         </div>
     );
 };
+
+export default HomePage;

@@ -1,17 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { usePreferences } from '../../../context/preferences-context';
 
 interface SettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
     currentUser: {
-        id: number,
-        username: string,
-        email: string,
-        role: string
-        balance?: string | number,
-        avatar?: any
+        id: number;
+        username?: string;
+        email?: string;
+        role?: string;
+        balance?: string | number;
+        avatar?: string;
     } | null;
-    onProfileUpdate?: (updatedUser: { username: string }) => void;
+    onProfileUpdate?: () => void | Promise<void>;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -20,60 +21,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     currentUser,
     onProfileUpdate
 }) => {
-    const [username, setUsername] = useState<string>('');
-    const [loading, setLoading] = useState<boolean>(false);
-    const [message, setMessage] = useState<string>('');
-    const [isError, setIsError] = useState<boolean>(false);
+    const { t } = usePreferences();
+    const [username, setUsername] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [message, setMessage] = useState('');
+    const [isError, setIsError] = useState(false);
 
-    // Синхронизируем стейт, когда модалка открывается и данные юзера подгружены
     useEffect(() => {
-        if (currentUser?.username) {
-            setUsername(currentUser.username);
+        if (isOpen) {
+            setUsername(currentUser?.username || '');
+            setMessage('');
+            setIsError(false);
         }
     }, [currentUser, isOpen]);
 
     if (!isOpen) return null;
 
-    const handleSave = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSave = async (event: React.FormEvent) => {
+        event.preventDefault();
         setLoading(true);
         setMessage('');
         setIsError(false);
 
         try {
-            const token = localStorage.getItem('token');
-            // Здесь твой роут бэкенда для обновления профиля
-            const response = await fetch('/api/user/update', {
+            const response = await fetch('/api/auth/profile', {
                 method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ username }),
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username })
             });
-
             const data = await response.json();
 
-            if (!response.ok) {
-                throw new Error(data.message || 'Не удалось обновить профиль');
+            if (!response.ok || !data.success) {
+                throw new Error(t(data.message || 'Could not update profile.'));
             }
 
-            setIsError(false);
-            setMessage('Данные успешно обновлены!');
-
-            // Если передали функцию обновления, вызываем её, чтобы обновить стейт на главной
-            if (onProfileUpdate) {
-                onProfileUpdate({ username });
-            }
-
-            setTimeout(() => {
-                setMessage('');
-                onClose();
-            }, 1000);
-
-        } catch (err: any) {
+            await onProfileUpdate?.();
+            setMessage(t('Profile updated successfully.'));
+            window.setTimeout(onClose, 800);
+        } catch (error) {
             setIsError(true);
-            setMessage(err.message || 'Ошибка соединения с сервером');
+            setMessage(error instanceof Error ? error.message : t('Could not connect to the server.'));
         } finally {
             setLoading(false);
         }
@@ -81,88 +69,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-            {/* Задний фон с размытием */}
-            <div
+            <button
+                type="button"
+                aria-label={t('Close settings')}
                 className="absolute inset-0 bg-black/70 backdrop-blur-sm"
                 onClick={onClose}
-            ></div>
-
-            {/* Карточка настроек */}
-            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 max-w-md w-full relative z-10">
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                        <span>⚙️</span> Настройки профиля
-                    </h2>
+            />
+            <div className="relative z-10 w-full max-w-md rounded-2xl border border-gray-800 bg-gray-900 p-6">
+                <div className="mb-6 flex items-center justify-between">
+                    <h2 className="text-xl font-bold text-white">{t('Profile Settings')}</h2>
                     <button
+                        type="button"
                         onClick={onClose}
-                        className="text-gray-400 hover:text-white transition text-lg"
+                        className="text-lg text-gray-400 transition hover:text-white"
                     >
                         ✕
                     </button>
                 </div>
 
                 <form onSubmit={handleSave} className="space-y-4">
-                    {/* Email (Заблокирован для изменения, чисто для инфы) */}
                     <div>
-                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
-                            Электронная почта
+                        <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-gray-500">
+                            {t('Email')}
                         </label>
                         <input
                             type="email"
-                            value={currentUser?.email || 'user@example.com'}
+                            value={currentUser?.email || ''}
                             disabled
-                            className="w-full bg-gray-950/50 border border-gray-850 rounded-xl px-4 py-3 text-gray-500 cursor-not-allowed text-sm focus:outline-none"
+                            className="w-full cursor-not-allowed rounded-xl border border-gray-800 bg-gray-950/50 px-4 py-3 text-sm text-gray-500"
                         />
                     </div>
 
-                    {/* Имя пользователя (Можно редактировать) */}
                     <div>
-                        <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
-                            Имя пользователя
+                        <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-gray-400">
+                            {t('Username')}
                         </label>
                         <input
                             type="text"
                             value={username}
-                            onChange={(e) => setUsername(e.target.value)}
-                            placeholder="Ваше имя"
-                            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition text-sm"
+                            onChange={event => setUsername(event.target.value)}
+                            minLength={1}
+                            maxLength={100}
                             required
+                            className="w-full rounded-xl border border-gray-800 bg-gray-950 px-4 py-3 text-sm text-white transition focus:border-purple-500 focus:outline-none"
                         />
                     </div>
 
-                    {/* Роль в системе */}
-                    <div>
-                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
-                            Ваш статус
-                        </label>
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-950/30 border border-purple-900/50 text-xs font-medium text-purple-300">
-                            🛡️ {currentUser?.role === 'admin' ? 'Администратор' : 'Пользователь'}
-                        </div>
+                    <div className="text-xs text-gray-400">
+                        {t('Account type:')} {currentUser?.role === 'admin' ? t('Administrator') : t('User')}
                     </div>
 
-                    {/* Кнопки действий */}
                     <div className="flex items-center gap-3 pt-2">
                         <button
                             type="button"
                             onClick={onClose}
-                            className="flex-1 bg-gray-850 hover:bg-gray-800 text-gray-300 font-medium py-2.5 rounded-xl transition text-sm text-center"
+                            disabled={loading}
+                            className="flex-1 rounded-xl bg-gray-800 py-2.5 text-sm font-medium text-gray-300 transition hover:bg-gray-700"
                         >
-                            Отмена
+                            {t('Cancel')}
                         </button>
                         <button
                             type="submit"
                             disabled={loading}
-                            className={`flex-1 font-medium py-2.5 rounded-xl transition text-sm text-center ${loading
-                                    ? 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                                    : 'bg-purple-600 hover:bg-purple-500 text-white active:scale-98'
-                                }`}
+                            className="flex-1 rounded-xl bg-purple-600 py-2.5 text-sm font-medium text-white transition hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            {loading ? 'Сохранение...' : 'Сохранить'}
+                            {loading ? t('Saving...') : t('Save')}
                         </button>
                     </div>
                 </form>
 
-                {/* Уведомления об успехе/ошибке */}
                 {message && (
                     <p className={`mt-4 text-center text-sm font-semibold ${isError ? 'text-red-400' : 'text-green-400'}`}>
                         {message}

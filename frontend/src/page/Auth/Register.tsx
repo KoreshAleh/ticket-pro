@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/useAuth';
+import { usePreferences } from '../../context/preferences-context';
 
 interface RegisterModalProps {
   isOpen: boolean;
@@ -9,6 +11,8 @@ interface RegisterModalProps {
 
 export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, onSwitchToLogin }) => {
   const navigate = useNavigate();
+  const { refreshUser } = useAuth();
+  const { t } = usePreferences();
   const [username, setUsername] = useState<string>('');
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
@@ -24,14 +28,11 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
     setMessage('');
     setIsError(false);
 
-    localStorage.removeItem('token');
-    localStorage.removeItem('userRole');
-    localStorage.removeItem('isAuthenticated');
-
     try {
       const response = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ username, email, password }),
       });
 
@@ -39,14 +40,11 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
 
       if (!response.ok) {
         setIsError(true);
-        setMessage(data.message || 'Something went wrong');
+        setMessage(t(data.message || 'Something went wrong'));
       } else {
+        await refreshUser();
         setIsError(false);
-        setMessage('Account created! Logging in...');
-
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('userRole', data.user.role);
-        localStorage.setItem('isAuthenticated', 'true');
+        setMessage(t('Account created! Logging in...'));
 
         setTimeout(() => {
           navigate('/userpage');
@@ -62,7 +60,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
     } catch (err) {
       console.error(err);
       setIsError(true);
-      setMessage('Server connection error');
+      setMessage(t('Server connection error'));
     } finally {
       setLoading(false);
     }
@@ -73,13 +71,13 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose}></div>
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 max-w-md w-full relative z-10 shadow-2xl">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-white">Sign Up</h2>
+          <h2 className="text-2xl font-bold text-white">{t('Sign Up')}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-white text-xl">✕</button>
         </div>
 
         <form onSubmit={handleRegister} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Username</label>
+            <label className="block text-sm font-medium text-gray-400 mb-1">{t('Username')}</label>
             <input 
               type="text" 
               value={username}
@@ -91,7 +89,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Email Address</label>
+            <label className="block text-sm font-medium text-gray-400 mb-1">{t('Email Address')}</label>
             <input 
               type="email" 
               value={email}
@@ -103,7 +101,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Password</label>
+            <label className="block text-sm font-medium text-gray-400 mb-1">{t('Password')}</label>
             <input 
               type="password" 
               value={password}
@@ -121,12 +119,12 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
               loading ? 'bg-gray-700 text-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white'
             }`}
           >
-            {loading ? 'Creating...' : 'Create Account'}
+            {loading ? t('Creating...') : t('Create Account')}
           </button>
 
           <div className="flex items-center my-4">
             <div className="flex-grow border-t border-gray-800"></div>
-            <span className="mx-4 text-xs text-gray-500 uppercase">or</span>
+            <span className="mx-4 text-xs text-gray-500 uppercase">{t('or')}</span>
             <div className="flex-grow border-t border-gray-800"></div>
           </div>
 
@@ -135,7 +133,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
             className="flex items-center justify-center gap-3 w-full bg-transparent border border-gray-800 hover:border-gray-700 hover:bg-gray-850 text-gray-200 font-medium py-3 rounded-xl transition text-sm text-center"
           >
             <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" alt="Google" className="w-5 h-5" />
-            Sign in with Google
+            {t('Sign in with Google')}
           </a>
         </form>
 
@@ -146,9 +144,9 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
         )}
 
         <div className="text-center mt-6 text-xs text-gray-500">
-          Already have an account?{' '}
+          {t('Already have an account?')}{' '}
           <button onClick={onSwitchToLogin} className="text-purple-400 hover:underline bg-transparent border-none cursor-pointer">
-            Sign In
+            {t('Sign In')}
           </button>
         </div>
       </div>

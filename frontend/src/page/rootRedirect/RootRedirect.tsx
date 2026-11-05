@@ -1,20 +1,23 @@
-import React from 'react';
-import { Navigate } from 'react-router-dom'; // Импортируем компонент Navigate
+import { Navigate } from 'react-router-dom';
+import { useAuth } from '../../context/useAuth';
 
 function RootRedirect() {
-  // Нам больше не нужен хук useNavigate() здесь
-  const token = localStorage.getItem('token');
-  const userRole = localStorage.getItem('userRole');
-  const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+  const { user, loading } = useAuth();
 
-  // 1. Если токен на месте и он валидный — автоматически пускаем дальше через компоненты <Navigate />
-  if (token && token !== 'undefined' && isAuthenticated) {
-    return userRole === 'admin' 
+  if (loading) {
+    return (
+      <div className="bg-gray-950 text-gray-100 min-h-screen flex items-center justify-center">
+        <div className="animate-spin border-4 w-8 h-8 border-purple-500 border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
+  if (user) {
+    return user.role === 'admin' 
       ? <Navigate to="/adminpage" replace />
       : <Navigate to="/userpage" replace />; 
   }
 
-  // 2. Если токена нет — отправляем на логин
   return <Navigate to="/mainpage" replace />;
 }
 

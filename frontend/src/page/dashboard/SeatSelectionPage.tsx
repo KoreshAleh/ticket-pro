@@ -1,12 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getUserFromToken } from '../../utils/auth';
+import { PaymentModal } from './PaymentModal';
+import { useAuth } from '../../context/useAuth';
+import { usePreferences } from '../../context/preferences-context';
+import { PreferenceControls } from '../../context/PreferencesContext';
 
 interface Seat {
     id: string;
     row: number;
     number: number;
-    status: 'available' | 'reserved' | 'selected';
+    status: 'available' | 'sold' | 'selected';
+    price: number;
+    is_mine: boolean;
 }
 
 interface Sector {
@@ -16,6 +21,14 @@ interface Sector {
     totalSeats: number;
     availableSeats: number;
 }
+
+const sectorOptions: Omit<Sector, 'totalSeats' | 'availableSeats'>[] = [
+    { id: 'vip-1', name: 'VIP Lounge 1', color: 'border-amber-500 hover:bg-amber-500/10 text-amber-400' },
+    { id: 'sec-a', name: 'Sector A (West)', color: 'border-purple-500 hover:bg-purple-500/10' },
+    { id: 'sec-b', name: 'Sector B (North)', color: 'border-blue-500 hover:bg-blue-500/10' },
+    { id: 'sec-c', name: 'Sector C (East)', color: 'border-pink-500 hover:bg-pink-500/10' },
+    { id: 'sec-d', name: 'Sector D (South)', color: 'border-indigo-500 hover:bg-indigo-500/10' },
+];
 
 interface ModalState {
     isOpen: boolean;
@@ -28,6 +41,8 @@ export const SeatSelectionPage: React.FC = () => {
     const { id } = useParams();
     const ticketId = Number(id);
     const navigate = useNavigate();
+    const { refreshUser } = useAuth();
+    const { t } = usePreferences();
 
     const [selectedSector, setSelectedSector] = useState<Sector | null>(null);
     const [seats, setSeats] = useState<Seat[]>([]);
@@ -35,8 +50,16 @@ export const SeatSelectionPage: React.FC = () => {
     const [isReserved, setIsReserved] = useState<boolean>(false);
     const [timeLeft, setTimeLeft] = useState<number>(900);
     const [loading, setLoading] = useState<boolean>(true);
-    const [user, setUser] = useState<number | null>(null);
+    const [sectors, setSectors] = useState<Sector[]>([]);
+    const [loadingSectors, setLoadingSectors] = useState<boolean>(true);
 
+    // Данные пользователя
+    const [userId, setUserId] = useState<number | null>(null);
+    const [userEmail, setUserEmail] = useState<string | null>(null);
+    const [userBalance, setUserBalance] = useState<number>(0);
+
+    // Управление модальным окном выбора оплаты
+    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState<boolean>(false);
     const [modal, setModal] = useState<ModalState>({
         isOpen: false,
         type: 'info',
@@ -44,69 +67,146 @@ export const SeatSelectionPage: React.FC = () => {
         message: ''
     });
 
-    const sectors: Sector[] = [
-        { id: 'sec-a', name: 'Sector A (West)', color: 'border-purple-500 hover:bg-purple-500/10', totalSeats: 160, availableSeats: 42 },
-        { id: 'sec-b', name: 'Sector B (North)', color: 'border-blue-500 hover:bg-blue-500/10', totalSeats: 160, availableSeats: 105 },
-        { id: 'sec-c', name: 'Sector C (East)', color: 'border-pink-500 hover:bg-pink-500/10', totalSeats: 160, availableSeats: 12 },
-        { id: 'sec-d', name: 'Sector D (South)', color: 'border-indigo-500 hover:bg-indigo-500/10', totalSeats: 160, availableSeats: 88 },
-        { id: 'vip-1', name: 'VIP Lounge Lounge 1', color: 'border-amber-500 hover:bg-amber-500/10 text-amber-400', totalSeats: 160, availableSeats: 15 },
-    ];
+    // 1. Загрузка профиля пользователя (с балансом)
+    const fetchUserData = async () => {
+        try {
+            const res = await fetch('/api/auth/me', {
+                method: 'GET',
+                credentials: 'include',
+                cache: 'no-store'
+            });
+            const data = await res.json();
+            if (res.ok && data.success && data.user) {
+                setUserId(data.user.id);
+                setUserEmail(data.user.email);
+                setUserBalance(Number(data.user.balance || 0));
+            }
+        } catch (err) {
+            console.error("Failed to load user info:", err);
+        }
+    };
 
     useEffect(() => {
-        const currentUser = getUserFromToken();
-        setUser(currentUser.id);
+        fetchUserData();
     }, []);
 
-    // 1. Восстановление брони из localStorage при первой загрузке
     useEffect(() => {
-        const savedLock = localStorage.getItem(`lock_ticket_${ticketId}`);
-        if (savedLock) {
-            const { sector, seat, expiresAt } = JSON.parse(savedLock);
-            const remainingTime = Math.floor((expiresAt - Date.now()) / 1000);
-
-            if (remainingTime > 0) {
-                setSelectedSector(sector);
-                setIsReserved(true);
-                setTimeLeft(remainingTime);
-                setSelectedSeat(seat);
-            } else {
-                localStorage.removeItem(`lock_ticket_${ticketId}`);
-            }
+        let cancelled = false;
+        if (!Number.isInteger(ticketId) || ticketId <= 0) {
+            setLoadingSectors(false);
+            return;
         }
-        setLoading(false);
+
+        setLoadingSectors(true);
+        Promise.all(sectorOptions.map(async (sector) => {
+            const response = await fetch(`/api/booking/seats/${ticketId}/${sector.id}`, {
+                credentials: 'include',
+                cache: 'no-store'
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success || !Array.isArray(result.data)) {
+                throw new Error(result.message || `Could not load availability for ${sector.name}.`);
+            }
+            const availableSeats = result.data.filter((seat: Seat) => seat.status === 'available').length;
+            return { ...sector, totalSeats: result.data.length, availableSeats };
+        })).then(availableSectors => {
+            if (!cancelled) setSectors(availableSectors);
+        }).catch(error => {
+            console.error('Failed to load sector availability:', error);
+            if (!cancelled) {
+                setSectors([]);
+                setModal({
+                    isOpen: true,
+                    type: 'error',
+                    title: 'Availability Error',
+                    message: 'Could not load live seat availability. Please reload this page and try again.'
+                });
+            }
+        }).finally(() => {
+            if (!cancelled) setLoadingSectors(false);
+        });
+
+        return () => { cancelled = true; };
     }, [ticketId]);
 
-    // 2. Fetch-запрос мест из базы через Nginx
+    // 2. Восстановление брони из localStorage при загрузке
+    useEffect(() => {
+        if (!userId) return;
+        try {
+            const savedLock = localStorage.getItem(`lock_ticket_${ticketId}`);
+            if (savedLock) {
+                const lock = JSON.parse(savedLock) as { userId: number; sector: Sector; seat: Seat; expiresAt: number };
+                const remainingTime = Math.floor((lock.expiresAt - Date.now()) / 1000);
+                if (lock.userId === userId && remainingTime > 0) {
+                    setSelectedSector(lock.sector);
+                    setIsReserved(true);
+                    setTimeLeft(remainingTime);
+                    setSelectedSeat(lock.seat);
+                } else {
+                    localStorage.removeItem(`lock_ticket_${ticketId}`);
+                }
+            }
+        } catch (error) {
+            console.error('Could not restore the saved seat hold:', error);
+            localStorage.removeItem(`lock_ticket_${ticketId}`);
+        } finally {
+            setLoading(false);
+        }
+    }, [ticketId, userId]);
+
+    // 3. Fetch-запрос мест
     useEffect(() => {
         if (!selectedSector) {
             setSeats([]);
             return;
         }
 
+        let cancelled = false;
         setLoading(true);
 
-        fetch(`/api/booking/seats/${ticketId}/${selectedSector.id}`)
-            .then(res => res.json())
-            .then(res => {
-                if (res.success && res.data) {
-                    // Обработка структуры бэкенда (разворачиваем data, если бэкенд возвращает { data: [...] })
-                    let backendSeats = Array.isArray(res.data) ? res.data : res.data.data || [];
-
-                    // Синхронизируем локальный статус 'selected', если у юзера тикает активный таймер
-                    const savedLock = localStorage.getItem(`lock_ticket_${ticketId}`);
-                    if (savedLock) {
-                        const { seat, expiresAt } = JSON.parse(savedLock);
-                        if (Math.floor((expiresAt - Date.now()) / 1000) > 0) {
-                            backendSeats = backendSeats.map((s: Seat) =>
-                                s.id === seat.id ? { ...s, status: 'selected' as const } : s
-                            );
-                        }
-                    }
-
-                    setSeats(backendSeats);
+        fetch(`/api/booking/seats/${ticketId}/${selectedSector.id}`, {
+            method: 'GET',
+            credentials: 'include',
+            cache: 'no-store'
+        })
+            .then(async response => {
+                const result = await response.json();
+                if (!response.ok || !result.success || !Array.isArray(result.data)) {
+                    throw new Error(result.message || 'Could not load seat availability.');
                 }
+                if (cancelled) return;
+                let backendSeats: Seat[] = result.data;
+                const savedLock = localStorage.getItem(`lock_ticket_${ticketId}`);
+                if (savedLock) {
+                    try {
+                        const lock = JSON.parse(savedLock) as { userId: number; seat: Seat; expiresAt: number };
+                        const lockedSeat = backendSeats.find(seat => String(seat.id) === String(lock.seat.id));
+                        const ownsActiveHold = lock.userId === userId &&
+                            lock.expiresAt > Date.now() &&
+                            lockedSeat?.status === 'selected' &&
+                            lockedSeat.is_mine;
+
+                        if (ownsActiveHold) {
+                            backendSeats = backendSeats.map(seat =>
+                                String(seat.id) === String(lock.seat.id) ? { ...seat, is_mine: true } : seat
+                            );
+                        } else {
+                            localStorage.removeItem(`lock_ticket_${ticketId}`);
+                            setIsReserved(false);
+                            setSelectedSeat(null);
+                            setTimeLeft(900);
+                        }
+                    } catch (error) {
+                        console.error('Could not validate the saved seat hold:', error);
+                        localStorage.removeItem(`lock_ticket_${ticketId}`);
+                        setIsReserved(false);
+                        setSelectedSeat(null);
+                    }
+                }
+                setSeats(backendSeats);
             })
             .catch(err => {
+                if (cancelled) return;
                 console.error("Error loading seats:", err);
                 setModal({
                     isOpen: true,
@@ -115,62 +215,62 @@ export const SeatSelectionPage: React.FC = () => {
                     message: 'Failed to load live stadium grid from the cluster.'
                 });
             })
-            .finally(() => setLoading(false));
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
 
-    }, [selectedSector, ticketId]);
+        return () => { cancelled = true; };
+    }, [selectedSector, ticketId, userId]);
 
-    // 3. Логика таймера удержания
+    // 4. Логика таймера
     useEffect(() => {
-        if (!isReserved || timeLeft <= 0) return;
-        const timer = setInterval(() => setTimeLeft((prev) => prev - 1), 1000);
+        if (!isReserved) return;
+        const timer = setInterval(() => {
+            setTimeLeft(previous => previous > 0 ? previous - 1 : 0);
+        }, 1000);
         return () => clearInterval(timer);
-    }, [isReserved, timeLeft]);
+    }, [isReserved]);
 
-    // 4. Очистка при истечении таймера
+    // 5. Очистка при истечении таймера
     useEffect(() => {
-    if (timeLeft === 0 && isReserved) {
-        
-        // 1. Сначала отправляем запрос на бэкенд, чтобы освободить место в Redis и БД
-        if (selectedSeat && selectedSector) {
-            fetch('/api/booking/cancelSelected', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId: user,
-                    ticketId: ticketId,
-                    sectorId: selectedSector.id,
-                    row: selectedSeat.row,
-                    seat: selectedSeat.number
+        if (timeLeft === 0 && isReserved) {
+            if (selectedSeat && selectedSector) {
+                fetch('/api/booking/cancelSelected', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: userId,
+                        ticketId: ticketId,
+                        sectorId: selectedSector.id,
+                        row: selectedSeat.row,
+                        seat: selectedSeat.number
+                    })
                 })
-            })
-            .then(() => {
-                // Перезапрашиваем сетку мест заново, чтобы увидеть актуальные статусы с сервера
-                return fetch(`/api/booking/seats/${ticketId}/${selectedSector.id}`);
-            })
-            .then(res => res.json())
-            .then(res => {
-                if (res.success && res.data) {
-                    let backendSeats = Array.isArray(res.data) ? res.data : res.data.data || [];
-                    setSeats(backendSeats);
-                }
-            })
-            .catch(err => console.error("Error auto-releasing seat on backend:", err));
+                    .then(() => fetch(`/api/booking/seats/${ticketId}/${selectedSector.id}`, { credentials: 'include' }))
+                    .then(res => res.json())
+                    .then(res => {
+                        if (res.success && res.data) {
+                            let backendSeats = Array.isArray(res.data) ? res.data : res.data.data || [];
+                            setSeats(backendSeats);
+                        }
+                    })
+                    .catch(err => console.error("Error auto-releasing seat on backend:", err));
+            }
+
+            setIsReserved(false);
+            setSelectedSeat(null);
+            setIsPaymentModalOpen(false);
+            localStorage.removeItem(`lock_ticket_${ticketId}`);
+
+            setModal({
+                isOpen: true,
+                type: 'error',
+                title: 'Hold Expired',
+                message: 'Your 15-minute reservation window has closed. The seat was released.'
+            });
         }
-
-        // 2. Полностью чистим фронтенд-стейт
-        setIsReserved(false);
-        setSelectedSeat(null);
-        localStorage.removeItem(`lock_ticket_${ticketId}`);
-
-        // 3. Выкидываем модалку для юзера
-        setModal({
-            isOpen: true,
-            type: 'error',
-            title: 'Hold Expired',
-            message: 'Your 15-minute reservation window has closed. The seat was released.'
-        });
-    }
-}, [timeLeft, isReserved, selectedSeat, selectedSector, ticketId, user]);
+    }, [timeLeft, isReserved, selectedSeat, selectedSector, ticketId, userId]);
 
     const formatTime = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
@@ -178,10 +278,9 @@ export const SeatSelectionPage: React.FC = () => {
         return `${mins}:${String(secs).padStart(2, '0')}`;
     };
 
-    // Шаг 1: Локальный клик на фронтенде без дергания бэкенда
     const handleSeatClick = (clickedSeat: Seat) => {
         if (isReserved) return;
-        if (clickedSeat.status === 'reserved') return;
+        if (clickedSeat.status !== 'available') return;
 
         if (selectedSeat && selectedSeat.id === clickedSeat.id) {
             setSelectedSeat(null);
@@ -191,16 +290,16 @@ export const SeatSelectionPage: React.FC = () => {
         setSelectedSeat(clickedSeat);
     };
 
-    // Шаг 2: Реальное атомарное бронирование при нажатии на кнопку подтверждения
     const handleConfirmHold = async () => {
         if (!selectedSeat || !selectedSector) return;
 
         try {
             const response = await fetch('/api/booking/checkSelected', {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    userId: user,
+                    userId: userId,
                     ticketId: ticketId,
                     sectorId: selectedSector.id,
                     row: selectedSeat.row,
@@ -214,22 +313,34 @@ export const SeatSelectionPage: React.FC = () => {
                 setIsReserved(true);
                 setTimeLeft(900);
 
+                const serverSeat = result.data;
+                const updatedSeat: Seat = {
+                    ...selectedSeat,
+                    id: String(serverSeat?.id || selectedSeat.id),
+                    price: Number(serverSeat?.price || selectedSeat.price || 0)
+                };
+
+                setSelectedSeat(updatedSeat);
+
                 const expirationTime = Date.now() + 900 * 1000;
                 localStorage.setItem(`lock_ticket_${ticketId}`, JSON.stringify({
+                    userId,
                     sector: selectedSector,
-                    seat: selectedSeat,
+                    seat: updatedSeat,
                     expiresAt: expirationTime
                 }));
 
-                setSeats(prev => prev.map(s => 
-                    s.id === selectedSeat.id ? { ...s, status: 'selected' as const } : s
+                setSeats(prev => prev.map(s =>
+                    String(s.id) === String(selectedSeat.id)
+                        ? { ...s, status: 'selected' as const, is_mine: true, price: updatedSeat.price }
+                        : s
                 ));
 
                 setModal({
                     isOpen: true,
                     type: 'success',
                     title: 'Seat Secured',
-                    message: `Successfully claimed an active hold on Row ${selectedSeat.row}, Seat ${selectedSeat.number}.`
+                    message: 'Seat held successfully'
                 });
             } else {
                 setModal({
@@ -239,11 +350,21 @@ export const SeatSelectionPage: React.FC = () => {
                     message: result.message || "This specific seat was just taken by someone else!"
                 });
 
-                // Если место перехвачено — перекрашиваем его в базе на фронте и сбрасываем выбор
-                setSeats(prev => prev.map(s => s.id === selectedSeat.id ? { ...s, status: 'reserved' as const } : s));
+                try {
+                    const latestResponse = await fetch(`/api/booking/seats/${ticketId}/${selectedSector.id}`, {
+                        credentials: 'include',
+                        cache: 'no-store'
+                    });
+                    const latestSeats = await latestResponse.json();
+                    if (latestResponse.ok && latestSeats.success && Array.isArray(latestSeats.data)) {
+                        setSeats(latestSeats.data);
+                    }
+                } catch (refreshError) {
+                    console.error('Failed to refresh seats after a hold conflict:', refreshError);
+                }
                 setSelectedSeat(null);
             }
-        } catch (error) {
+        } catch {
             setModal({
                 isOpen: true,
                 type: 'error',
@@ -255,86 +376,78 @@ export const SeatSelectionPage: React.FC = () => {
 
     const handleCancelReservation = async (askConfirm = true) => {
         if (askConfirm) {
-            const confirmCancel = window.confirm("Are you sure you want to cancel your reservation?");
+            const confirmCancel = window.confirm(t("Are you sure you want to cancel your reservation?"));
             if (!confirmCancel) return;
         }
 
-        // Если у нас выделено место и бронь уже подтверждена на бэкенде — отправляем запрос на удаление лока
-        if (selectedSeat && selectedSector && isReserved) {
+        const seatToRelease = selectedSeat;
+        if (seatToRelease && selectedSector && isReserved) {
             try {
-                await fetch('/api/booking/cancelSelected', {
+                const response = await fetch('/api/booking/cancelSelected', {
                     method: 'POST',
+                    credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        userId: user,
+                        userId: userId,
                         ticketId: ticketId,
                         sectorId: selectedSector.id,
-                        row: selectedSeat.row,
-                        seat: selectedSeat.number
+                        row: seatToRelease.row,
+                        seat: seatToRelease.number
                     })
                 });
-                // Мы не проверяем тут response.ok жестко, так как в любом случае очищаем фронтенд-стейт
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || 'The server could not release this seat.');
+                }
             } catch (error) {
                 console.error("Failed to notify backend about cancelled lock:", error);
+                setModal({
+                    isOpen: true,
+                    type: 'error',
+                    title: 'Could Not Cancel Hold',
+                    message: error instanceof Error ? error.message : 'The seat hold could not be released. Please try again.'
+                });
+                return;
             }
         }
 
-        // Очищаем локальное состояние и хранилище на фронтенде
         setIsReserved(false);
         setSelectedSeat(null);
+        setIsPaymentModalOpen(false);
         localStorage.removeItem(`lock_ticket_${ticketId}`);
-        setSeats(prev => prev.map(s => s.status === 'selected' ? { ...s, status: 'available' as const } : s));
+        if (seatToRelease) {
+            setSeats(prev => prev.map(seat =>
+                String(seat.id) === String(seatToRelease.id)
+                    ? { ...seat, status: 'available' as const, is_mine: false }
+                    : seat
+            ));
+        }
     };
 
-    const handlePayment = async () => {
-    if (!selectedSeat || !selectedSector) return;
+    const handlePaymentSuccess = async (updatedBalance?: number) => {
+        const purchasedSeatId = selectedSeat?.id;
 
-    try {
-        // Показываем пользователю, что идет загрузка/перенаправление
+        setIsPaymentModalOpen(false);
+        setIsReserved(false);
+        setSelectedSeat(null);
+        setSeats(prev => prev.map(seat =>
+            seat.id === purchasedSeatId ? { ...seat, status: 'sold' } : seat
+        ));
+        localStorage.removeItem(`lock_ticket_${ticketId}`);
+        if (updatedBalance !== undefined) setUserBalance(updatedBalance);
+        await Promise.all([fetchUserData(), refreshUser()]);
+
         setModal({
             isOpen: true,
-            type: 'info',
-            title: 'Redirecting',
-            message: 'Preparing secure payment session with Stripe...'
+            type: 'success',
+            title: selectedSeat?.price === 0 ? 'Free Ticket Claimed' : 'Transaction Authorized',
+            message: selectedSeat?.price === 0 ? 'Your free ticket has been added to My Tickets.' : 'Ticket successfully purchased!'
         });
-
-        // 1. Делаем запрос к нашему бэкенд-контроллеру Stripe
-        const response = await fetch('/api/payment/checkout', { // Скорректируй путь, если у тебя другой префикс роутера
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                amount: 3500, // Цена билета в минимальных единицах (например, $35.00 = 3500 центов)
-                currency: 'usd', // Валюта
-                userId: user,
-                ticketId: ticketId, // Передаем ID билета/события
-                userEmail: 'user@example.com' // Сюда можно прокинуть реальный email авторизованного юзера
-            })
-        });
-
-        const data = await response.json();
-
-        if (response.ok && data.url) {
-            // 2. Стираем локальный лок, так как теперь за него отвечает Stripe сессия
-            localStorage.removeItem(`lock_ticket_${ticketId}`);
-            
-            // 3. Перенаправляем на защищенную страницу Stripe
-            window.location.href = data.url;
-        } else {
-            throw new Error(data.error || "Failed to initiate payment session");
-        }
-    } catch (error: any) {
-        setModal({
-            isOpen: true,
-            type: 'error',
-            title: 'Payment Error',
-            message: error.message || "Failed to reach payment gateway."
-        });
-    }
-};
+    };
 
     const handleCloseModal = () => {
         setModal(prev => ({ ...prev, isOpen: false }));
-        if (modal.title === 'Transaction Authorized') {
+        if (modal.title === 'Transaction Authorized' || modal.title === 'Free Ticket Claimed') {
             navigate('/userpage');
         }
     };
@@ -363,31 +476,40 @@ export const SeatSelectionPage: React.FC = () => {
                     <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/mainpage')}>
                         <span className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-500 bg-clip-text text-transparent">TicketPro</span>
                     </div>
-                    <button onClick={() => navigate(-1)} className="text-sm text-gray-400 hover:text-white transition">
-                        &larr; Back to Events
-                    </button>
+                    <div className="flex items-center gap-2 sm:gap-3">
+                        <button onClick={() => navigate(-1)} className="text-sm text-gray-400 hover:text-white transition">
+                            &larr; {t('Back to Events')}
+                        </button>
+                        <PreferenceControls />
+                    </div>
                 </div>
             </header>
 
-            <main className="flex-grow max-w-7xl w-full mx-auto px-4 py-8 flex flex-col lg:flex-row gap-8 items-start">
-                <div className="flex-grow w-full bg-gray-900/20 border border-gray-900 rounded-3xl p-8 flex flex-col items-center overflow-x-auto shadow-2xl backdrop-blur-sm">
+            <main className="mx-auto flex w-full max-w-7xl flex-grow flex-col items-start gap-5 px-3 py-5 sm:gap-8 sm:px-4 sm:py-8 lg:flex-row">
+                <div className="flex w-full flex-grow flex-col items-center overflow-x-auto rounded-3xl border border-gray-900 bg-gray-900/20 p-3 shadow-2xl backdrop-blur-sm sm:p-8">
                     {!selectedSector ? (
                         <div className="w-full max-w-2xl text-center py-6">
-                            <h2 className="text-xl font-black text-white mb-2">Select Arena Sector</h2>
-                            <p className="text-xs text-gray-500 mb-10">Choose your target grandstand zone.</p>
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-xl mx-auto">
+                            <h2 className="text-xl font-black text-white mb-2">{t('Select Arena Sector')}</h2>
+                            <p className="mb-8 text-xs text-gray-500">{t('Choose your target grandstand zone.')}</p>
+                            {loadingSectors && <p className="mb-4 text-sm text-gray-400">{t('Loading live seat availability...')}</p>}
+                            {!loadingSectors && sectors.length === 0 && (
+                                <p className="text-sm text-red-400">{t('Seat availability could not be loaded. Reload to try again.')}</p>
+                            )}
+                            <div className="mx-auto grid max-w-xl grid-cols-2 gap-3 sm:gap-4 sm:grid-cols-3">
                                 {sectors.map((sec) => (
-                                    <div
+                                    <button
+                                        type="button"
                                         key={sec.id}
                                         onClick={() => setSelectedSector(sec)}
-                                        className={`border rounded-2xl p-5 cursor-pointer transition duration-300 transform hover:-translate-y-1 bg-gray-900/40 text-center flex flex-col justify-between h-36 ${sec.color}`}
+                                        disabled={loadingSectors || sec.availableSeats === 0}
+                                        className={`flex h-32 flex-col justify-between rounded-2xl border bg-gray-900/40 p-3 text-center transition duration-300 hover:-translate-y-1 disabled:cursor-not-allowed disabled:opacity-50 sm:h-36 sm:p-5 ${sec.color}`}
                                     >
-                                        <span className="text-sm font-black tracking-wide block">{sec.name}</span>
+                                        <span className="block text-xs font-black tracking-wide sm:text-sm">{t(sec.name)}</span>
                                         <div>
-                                            <span className="text-xs text-gray-400 block mt-2">{sec.availableSeats} Left</span>
-                                            <span className="text-[10px] text-gray-600 block">out of {sec.totalSeats}</span>
+                                            <span className="text-xs text-gray-400 block mt-2">{sec.availableSeats} {t('Left')}</span>
+                                            <span className="text-[10px] text-gray-600 block">{t('out of')} {sec.totalSeats}</span>
                                         </div>
-                                    </div>
+                                    </button>
                                 ))}
                             </div>
                         </div>
@@ -400,18 +522,18 @@ export const SeatSelectionPage: React.FC = () => {
                                         disabled={isReserved}
                                         className={`text-xs px-3 py-1.5 rounded-xl border border-gray-800 transition ${isReserved ? 'opacity-50 cursor-not-allowed text-gray-600' : 'bg-gray-900 hover:bg-gray-800 text-purple-400'}`}
                                     >
-                                        &larr; Change Sector
+                                        &larr; {t('Change Sector')}
                                     </button>
-                                    <span className="text-sm font-black text-white">Active Sector: <span className="text-purple-400">{selectedSector.name}</span></span>
+                                    <span className="text-sm font-black text-white">{t('Active Sector')}: <span className="text-purple-400">{t(selectedSector.name)}</span></span>
                                 </div>
                                 <div className="w-48 h-1 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full opacity-60"></div>
                             </div>
 
                             <div className="w-full max-w-xl h-3 bg-gradient-to-r from-purple-600 via-indigo-500 to-pink-600 rounded-b-3xl opacity-70 shadow-[0_10px_30px_rgba(99,102,241,0.4)] mb-16 text-center text-[10px] tracking-[0.3em] font-bold text-indigo-200 pt-4 uppercase">
-                                STADIUM FIELD / ARENA STAGE
+                                {t('STADIUM FIELD / ARENA STAGE')}
                             </div>
 
-                            <div className="flex flex-col gap-3 min-w-[750px] p-4 bg-gray-950/40 rounded-2xl border border-gray-900">
+                            <div className="flex min-w-[750px] flex-col gap-3 rounded-2xl border border-gray-900 bg-gray-950/40 p-4">
                                 {rows.map(rowNum => {
                                     const rowSeats = seats.filter(s => s.row === rowNum);
                                     const curvePadding = Math.abs(5.5 - rowNum) * 4;
@@ -424,21 +546,24 @@ export const SeatSelectionPage: React.FC = () => {
                                         >
                                             <span className="w-6 text-[10px] font-mono text-gray-600 font-bold text-right mr-3 select-none">R{rowNum}</span>
                                             {rowSeats.map((seat) => {
-                                                // Подсвечиваем сиденье, если оно сохранено в БД со статусом selected ИЛИ просто кликнуто локально на клиенте
-                                                const isSelected = seat.status === 'selected' || (selectedSeat && selectedSeat.id === seat.id);
-                                                const isReservedStatus = seat.status === 'reserved';
+                                                const isCurrentSelection = selectedSeat !== null && String(selectedSeat.id) === String(seat.id);
+                                                const isOtherHold = seat.status === 'selected' && !seat.is_mine;
+                                                const isSelected = isCurrentSelection || (seat.status === 'selected' && seat.is_mine);
+                                                const isReservedStatus = seat.status === 'sold';
                                                 const aisleClass = seat.number === 4 || seat.number === 12 ? 'mr-6' : '';
 
                                                 return (
                                                     <button
                                                         key={seat.id}
-                                                        disabled={isReservedStatus || (isReserved && !isSelected)}
+                                                        disabled={isReservedStatus || isOtherHold || (isReserved && !isSelected)}
                                                         onClick={() => handleSeatClick(seat)}
                                                         className={`h-7 w-7 text-[9px] font-bold rounded-md border transition-all duration-150 ${aisleClass} ${isReservedStatus ? "bg-red-950/10 border-red-900/20 text-red-900/40 cursor-not-allowed" :
-                                                                isSelected ? "bg-gradient-to-br from-purple-500 to-indigo-600 border-purple-400 text-white shadow-[0_0_12px_rgba(168,85,247,0.5)] scale-105" :
-                                                                    "bg-gray-900 border-gray-800 text-gray-500 hover:border-purple-500/50 hover:text-gray-200 hover:scale-105"
+                                                            isOtherHold ? "cursor-not-allowed border-amber-900/60 bg-amber-950/40 text-amber-500" :
+                                                            isSelected ? "bg-gradient-to-br from-purple-500 to-indigo-600 border-purple-400 text-white shadow-[0_0_12px_rgba(168,85,247,0.5)] scale-105" :
+                                                                "bg-gray-900 border-gray-800 text-gray-500 hover:border-purple-500/50 hover:text-gray-200 hover:scale-105"
                                                             }`}
-                                                        title={`${selectedSector.name} • Row ${seat.row} • Seat ${seat.number}`}
+                                                        title={`${t(selectedSector.name)} • ${t('Row')} ${seat.row} • ${t('Seat')} ${seat.number} • ${t(isReservedStatus ? 'Sold' : isOtherHold ? 'Held by another user' : isSelected ? 'Selected' : 'Available')}`}
+                                                        aria-label={`${t(selectedSector.name)}, ${t('Row')} ${seat.row}, ${t('Seat')} ${seat.number}, ${t(isReservedStatus ? 'Sold' : isOtherHold ? 'Held by another user' : isSelected ? 'Selected' : 'Available')}`}
                                                     >
                                                         {seat.number}
                                                     </button>
@@ -450,54 +575,58 @@ export const SeatSelectionPage: React.FC = () => {
                                 })}
                             </div>
 
-                            <div className="flex justify-center gap-8 mt-12 border-t border-gray-900/60 pt-6 w-full text-xs text-gray-400">
-                                <div className="flex items-center gap-2"><span className="w-3.5 h-3.5 bg-gray-900 border border-gray-800 rounded-md"></span> Available Seat</div>
-                                <div className="flex items-center gap-2"><span className="w-3.5 h-3.5 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-md"></span> Selected / Target Seat</div>
-                                <div className="flex items-center gap-2"><span className="w-3.5 h-3.5 bg-red-950/20 border border-red-900/30 rounded-md"></span> Sold Out</div>
+                            <div className="mt-8 flex w-full flex-wrap justify-center gap-x-5 gap-y-3 border-t border-gray-900/60 pt-6 text-xs text-gray-400 sm:mt-12 sm:gap-8">
+                                <div className="flex items-center gap-2"><span className="w-3.5 h-3.5 bg-gray-900 border border-gray-800 rounded-md"></span> {t('Available Seat')}</div>
+                                <div className="flex items-center gap-2"><span className="w-3.5 h-3.5 bg-amber-950 border border-amber-900 rounded-md"></span> {t('Held')}</div>
+                                <div className="flex items-center gap-2"><span className="w-3.5 h-3.5 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-md"></span> {t('Selected')}</div>
+                                <div className="flex items-center gap-2"><span className="w-3.5 h-3.5 bg-red-950/20 border border-red-900/30 rounded-md"></span> {t('Sold Out')}</div>
                             </div>
                         </>
                     )}
                 </div>
 
                 <div className="w-full lg:w-80 bg-gray-900 border border-gray-900 rounded-3xl p-6 shrink-0 shadow-xl">
-                    <h2 className="text-xs font-bold tracking-wider text-gray-400 uppercase border-b border-gray-800 pb-4">Checkout Panel</h2>
+                    <h2 className="text-xs font-bold tracking-wider text-gray-400 uppercase border-b border-gray-800 pb-4">{t('Checkout Panel')}</h2>
                     {selectedSeat && selectedSector ? (
                         <div className="mt-5 space-y-4">
                             <div className="bg-gray-950 p-4 rounded-2xl border border-gray-850">
-                                <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold block">Allocation</span>
-                                <p className="text-lg font-extrabold text-white mt-1">Row {selectedSeat.row}, Seat {selectedSeat.number}</p>
-                                <span className="text-[11px] text-purple-400 font-medium block mt-1">{selectedSector.name}</span>
+                                <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold block">{t('Allocation')}</span>
+                                <p className="text-lg font-extrabold text-white mt-1">{t('Row')} {selectedSeat.row}, {t('Seat')} {selectedSeat.number}</p>
+                                <span className="text-[11px] text-purple-400 font-medium block mt-1">{t(selectedSector.name)}</span>
+                                <span className="text-xs text-emerald-400 font-bold block mt-2">
+                                    {selectedSeat.price === 0 ? t('Free ticket') : `${t('Price')}: $${selectedSeat.price}`}
+                                </span>
                             </div>
 
-                            {/* ЭТАП 1: Место выбрано локально, бэкенд и таймер еще не запущены */}
                             {!isReserved ? (
                                 <button
                                     onClick={handleConfirmHold}
                                     className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white py-3 rounded-xl font-bold text-xs tracking-wider transition uppercase shadow-lg shadow-purple-950/20"
                                 >
-                                    Confirm & Lock Seat
+                                    {t('Confirm & Lock Seat')}
                                 </button>
                             ) : (
-                                /* ЭТАП 2: Бронь подтверждена бэкендом, пошел обратный отсчет */
                                 <div className="bg-yellow-950/10 border border-yellow-900/30 p-4 rounded-2xl space-y-3">
                                     <div className="flex items-center justify-between">
-                                        <span className="text-xs font-bold text-yellow-500 uppercase tracking-wider">Redis Hold Active</span>
+                                        <span className="text-xs font-bold text-yellow-500 uppercase tracking-wider">{t('Reservation Active')}</span>
                                         <span className="text-sm font-mono font-bold text-yellow-400 bg-yellow-950/40 px-2 py-0.5 rounded border border-yellow-900/20">{formatTime(timeLeft)}</span>
                                     </div>
                                     <p className="text-[11px] text-gray-400 leading-relaxed">
-                                        The stadium computing cluster has locked this seat.
+                                        {t('The stadium computing cluster has locked this seat.')}
                                     </p>
+
                                     <button
-                                        onClick={handlePayment}
+                                        onClick={() => setIsPaymentModalOpen(true)}
                                         className="w-full bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white py-3 rounded-xl font-bold text-xs tracking-wider transition uppercase shadow-lg shadow-emerald-950/20"
                                     >
-                                        Authorize Payment
+                                        {selectedSeat.price === 0 ? t('Claim Free Ticket') : t('Proceed to Payment')}
                                     </button>
+
                                     <button
                                         onClick={() => handleCancelReservation(true)}
                                         className="w-full bg-transparent hover:bg-red-950/20 text-red-400 border border-red-900/40 py-2.5 rounded-xl font-bold text-[11px] tracking-wider transition uppercase"
                                     >
-                                        Cancel Lock
+                                        {t('Cancel Reservation')}
                                     </button>
                                 </div>
                             )}
@@ -505,14 +634,33 @@ export const SeatSelectionPage: React.FC = () => {
                     ) : (
                         <div className="text-center py-16 text-gray-600 text-xs border border-dashed border-gray-800 rounded-2xl mt-5 px-4 leading-relaxed">
                             {!selectedSector
-                                ? "Select a conceptual stadium sector zone inside the matrix layout first."
-                                : "Click on any open operational location within the grandstand block matrix to assign booking nodes."
+                                ? t("Select a conceptual stadium sector zone inside the matrix layout first.")
+                                : t("Click on any open operational location within the grandstand block matrix to assign booking nodes.")
                             }
                         </div>
                     )}
                 </div>
             </main>
 
+            {/* --- 💳 МОДАЛЬНОЕ ОКНО ВЫБОРА ОПЛАТЫ --- */}
+            {selectedSeat && selectedSector && (
+                <PaymentModal
+                    isOpen={isPaymentModalOpen}
+                    ticketId={ticketId}
+                    sectorId={selectedSector.id}
+                    row={selectedSeat.row}
+                    seat={selectedSeat.number}
+                    seatId={Number(selectedSeat.id)}
+                    userId={userId}
+                    userEmail={userEmail}
+                    price={selectedSeat.price}
+                    userBalance={userBalance}
+                    onClose={() => setIsPaymentModalOpen(false)}
+                    onSuccess={handlePaymentSuccess}
+                />
+            )}
+
+            {/* --- ОВЕРЛЕЙ УВЕДОМЛЕНИЙ --- */}
             {modal.isOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/75 backdrop-blur-sm p-4">
                     <div className="bg-gray-900 border border-gray-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl">
@@ -520,24 +668,24 @@ export const SeatSelectionPage: React.FC = () => {
                             {modal.type === 'success' && <div className="h-8 w-8 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-center text-emerald-400 font-bold">✓</div>}
                             {modal.type === 'error' && <div className="h-8 w-8 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center justify-center text-red-400 font-bold">✕</div>}
                             {modal.type === 'info' && <div className="h-8 w-8 bg-blue-500/10 border border-blue-500/30 rounded-xl flex items-center justify-center text-blue-400 font-bold">i</div>}
-                            <h3 className="text-sm font-black text-white uppercase tracking-wider">{modal.title}</h3>
+                            <h3 className="text-sm font-black text-white uppercase tracking-wider">{t(modal.title)}</h3>
                         </div>
-                        <p className="text-xs text-gray-400 leading-relaxed mb-6">{modal.message}</p>
+                        <p className="text-xs text-gray-400 leading-relaxed mb-6">{t(modal.message)}</p>
                         <button
                             onClick={handleCloseModal}
                             className={`w-full py-2.5 rounded-xl font-bold text-xs tracking-wider uppercase transition border ${modal.type === 'success' ? 'bg-emerald-600 hover:bg-emerald-500 border-emerald-500 text-white' :
-                                    modal.type === 'error' ? 'bg-red-600 hover:bg-red-500 border-red-500 text-white' :
-                                        'bg-purple-600 hover:bg-purple-500 border-purple-500 text-white'
+                                modal.type === 'error' ? 'bg-red-600 hover:bg-red-500 border-red-500 text-white' :
+                                    'bg-purple-600 hover:bg-purple-500 border-purple-500 text-white'
                                 }`}
                         >
-                            Acknowledge
+                            {t('Acknowledge')}
                         </button>
                     </div>
                 </div>
             )}
 
             <footer className="border-t border-gray-900 bg-gray-950 py-5 text-center text-[10px] text-gray-600 tracking-wide">
-                &copy; 2026 TicketPro Ecosystem. High-Performance Concierge Architecture.
+                &copy; 2026 TicketPro Ecosystem. {t('High-Performance Concierge Architecture.')}
             </footer>
         </div>
     );

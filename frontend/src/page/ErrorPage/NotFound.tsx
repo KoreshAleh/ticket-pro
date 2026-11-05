@@ -1,8 +1,11 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { usePreferences } from '../../context/preferences-context';
+import { PreferenceControls } from '../../context/PreferencesContext';
 
 export const NotFound: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = usePreferences();
 
   return (
     <div className="bg-gray-950 text-gray-100 min-h-screen font-sans antialiased flex flex-col justify-between relative overflow-hidden">
@@ -13,13 +16,14 @@ export const NotFound: React.FC = () => {
 
       {/* Simple Header for symmetry */}
       <header className="border-b border-gray-900/40 bg-gray-950/20 backdrop-blur-sm sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center">
+        <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-3 px-4 py-2">
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/mainpage')}>
             <span className="text-2xl">🎟️</span>
             <span className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-500 bg-clip-text text-transparent">
               TicketPro
             </span>
           </div>
+          <PreferenceControls />
         </div>
       </header>
 
@@ -33,10 +37,10 @@ export const NotFound: React.FC = () => {
 
         <div className="space-y-2 max-w-md">
           <h2 className="text-xl sm:text-2xl font-bold text-white">
-            Oops! Page Lost in Space
+            {t('Oops! Page Lost in Space')}
           </h2>
           <p className="text-sm text-gray-400 font-light leading-relaxed">
-            It looks like this event does not exist, or the ticket office has moved to another address.
+            {t('It looks like this event does not exist, or the ticket office has moved to another address.')}
           </p>
         </div>
 
@@ -46,14 +50,14 @@ export const NotFound: React.FC = () => {
             onClick={() => navigate('/mainpage')}
             className="px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white font-medium text-sm rounded-xl transition active:scale-95 shadow-lg shadow-purple-600/20 cursor-pointer"
           >
-            Back to Home →
+            {t('Back to Home →')}
           </button>
         </div>
       </main>
 
       {/* Compact Footer */}
       <footer className="py-6 text-center text-xs text-gray-700 border-t border-gray-900/40 bg-gray-950/10">
-        &copy; 2026 TicketPro Core Suite &bull; Lost in Space
+        &copy; 2026 TicketPro Core Suite &bull; {t('Lost in Space')}
       </footer>
 
     </div>
